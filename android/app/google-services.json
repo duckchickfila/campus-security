@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "265434877160",
+    "project_id": "campus-security-8a8ec",
+    "storage_bucket": "campus-security-8a8ec.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:265434877160:android:8bf14c1fd209f569c64d5d",
+        "android_client_info": {
+          "package_name": "com.example.demo_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAIfpGydwdo40yvK2ipG6_B_JzZpSMzMic"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
