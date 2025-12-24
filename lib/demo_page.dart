@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'recording_screen.dart';
+import 'custom_appbar.dart';
 
 class Demopage1 extends StatefulWidget {
   const Demopage1({super.key});
@@ -56,38 +57,7 @@ class _DemopageState extends State<Demopage1> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
-      appBar: AppBar(
-        backgroundColor: const Color.fromARGB(255, 247, 196, 196),
-        title: const Text(
-          'Gauri',
-          style: TextStyle(
-            fontFamily: 'Inter',
-            color: Colors.black,
-            fontSize: 30,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        actions: [
-        Padding(
-          padding: const EdgeInsets.only(right: 8.0),
-          child: FloatingActionButton.small(
-            onPressed: () {
-            print('pressed');
-            },
-            backgroundColor: Colors.transparent, // remove FAB background
-            elevation: 0,                         // remove shadow
-            child: ClipOval(
-              child: Image.asset(
-                'lib/assets/images/circle.png',
-                width: 40,
-                height: 40,
-                fit: BoxFit.cover,
-              ),
-            ),
-          ),
-        ),
-      ],
-      ),
+      appBar: const CustomAppBar(),
       body:
        Padding(
         padding: const EdgeInsets.all(16.0),
@@ -99,31 +69,23 @@ class _DemopageState extends State<Demopage1> {
             Center(
               child: ElevatedButton(
                 onPressed: () async {
-                  // Check if permissions are already granted
-                  if (await Permission.camera.isGranted && await Permission.microphone.isGranted) {
-                    // Go straight to recording screen
+                  final statuses = await [
+                    Permission.camera,
+                    Permission.microphone,
+                    Permission.location,
+                  ].request();
+
+                  if (statuses[Permission.camera]!.isGranted &&
+                      statuses[Permission.microphone]!.isGranted &&
+                      statuses[Permission.location]!.isGranted) {
                     Navigator.push(
                       context,
                       MaterialPageRoute(builder: (_) => const RecordingScreen()),
                     );
                   } else {
-                    // Request permissions only if not granted
-                    final statuses = await [
-                      Permission.camera,
-                      Permission.microphone,
-                    ].request();
-
-                    if (statuses[Permission.camera]!.isGranted &&
-                        statuses[Permission.microphone]!.isGranted) {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (_) => const RecordingScreen()),
-                      );
-                    } else {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Camera & mic permissions required')),
-                      );
-                    }
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Camera, mic & location permissions required')),
+                    );
                   }
                 },
                 style: ElevatedButton.styleFrom(
