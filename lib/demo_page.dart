@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'recording_screen.dart';
 import 'custom_appbar.dart';
+import 'submit_report_page.dart';
 
 class Demopage1 extends StatefulWidget {
   const Demopage1({super.key});
@@ -109,7 +110,12 @@ class _DemopageState extends State<Demopage1> {
             // Report Button
             ElevatedButton(
               onPressed: () {
-                print('Navigate to report submit page');
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const SubmitReportPage(),
+                  ),
+                );
               },
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color.fromARGB(255, 106, 178, 237),

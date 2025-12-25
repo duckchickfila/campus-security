@@ -1,9 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'student_form_page.dart'; // ✅ import your form page
+import 'student_form_page.dart';
 
 class CustomAppBar extends StatefulWidget implements PreferredSizeWidget {
-  const CustomAppBar({super.key});
+  final List<Widget>? extraActions; // optional additional actions (e.g., chat)
+  final Widget? leading;            // optional leading widget (e.g., back button)
+
+  const CustomAppBar({
+    super.key,
+    this.extraActions,
+    this.leading,
+  });
 
   @override
   State<CustomAppBar> createState() => _CustomAppBarState();
@@ -65,10 +72,11 @@ class _CustomAppBarState extends State<CustomAppBar> {
   Widget build(BuildContext context) {
     return AppBar(
       backgroundColor: const Color.fromARGB(255, 247, 196, 196),
+      leading: widget.leading,
       title: _isLoading
-          ? const SizedBox.shrink() // nothing while loading
+          ? const SizedBox.shrink()
           : (_username == null || _username!.isEmpty)
-              ? const SizedBox.shrink() // nothing if no profile
+              ? const SizedBox.shrink()
               : Text(
                   _username!,
                   style: const TextStyle(
@@ -79,18 +87,17 @@ class _CustomAppBarState extends State<CustomAppBar> {
                   ),
                 ),
       actions: [
+        ...(widget.extraActions ?? []),
         Padding(
           padding: const EdgeInsets.only(right: 8.0),
           child: FloatingActionButton.small(
             onPressed: () {
-              // ✅ Navigate to StudentFormPage when profile button is pressed
               Navigator.push(
                 context,
                 MaterialPageRoute(
                   builder: (context) => const StudentFormPage(),
                 ),
               ).then((_) {
-                // Refresh username when returning from form page
                 _fetchUserName();
               });
             },
