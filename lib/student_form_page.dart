@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'custom_appbar.dart';
-import 'login_page.dart'; // ✅ import your login page
+import 'login_page.dart';
+import 'demo_page.dart'; // ✅ import your home screen
 
 class StudentFormPage extends StatefulWidget {
   const StudentFormPage({super.key});
@@ -73,80 +74,85 @@ class _StudentFormPageState extends State<StudentFormPage> {
   }
 
   Future<void> _submitDetails() async {
-  if (!_formKey.currentState!.validate()) return;
+    if (!_formKey.currentState!.validate()) return;
 
-  setState(() => _isSubmitting = true);
+    setState(() => _isSubmitting = true);
 
-  try {
-    final userId = _supabase.auth.currentUser?.id;
-    if (userId == null) throw Exception("User not logged in");
+    try {
+      final userId = _supabase.auth.currentUser?.id;
+      if (userId == null) throw Exception("User not logged in");
 
-    // ✅ Fetch existing record
-    final existing = await _supabase
-        .from('student_details')
-        .select()
-        .eq('user_id', userId)
-        .limit(1);
+      final existing = await _supabase
+          .from('student_details')
+          .select()
+          .eq('user_id', userId)
+          .limit(1);
 
-    final newData = {
-      'user_id': userId,
-      'name': _nameController.text.trim(),
-      'enrollment_no': _enrollmentController.text.trim(),
-      'department': _departmentController.text.trim(),
-      'semester': _semesterController.text.trim(),
-      'contact_no': _contactController.text.trim(),
-      'address': _addressController.text.trim(),
-    };
+      final newData = {
+        'user_id': userId,
+        'name': _nameController.text.trim(),
+        'enrollment_no': _enrollmentController.text.trim(),
+        'department': _departmentController.text.trim(),
+        'semester': _semesterController.text.trim(),
+        'contact_no': _contactController.text.trim(),
+        'address': _addressController.text.trim(),
+      };
 
-    if (existing.isNotEmpty) {
-      final oldData = existing.first as Map<String, dynamic>;
+      if (existing.isNotEmpty) {
+        final oldData = existing.first as Map<String, dynamic>;
 
-      // ✅ Compare old vs new
-      bool changed = false;
-      for (final key in newData.keys) {
-        if (newData[key] != oldData[key]) {
-          changed = true;
-          break;
+        bool changed = false;
+        for (final key in newData.keys) {
+          if (newData[key] != oldData[key]) {
+            changed = true;
+            break;
+          }
         }
-      }
 
-      if (changed) {
-        await _supabase
-            .from('student_details')
-            .update(newData)
-            .eq('user_id', userId);
+        if (changed) {
+          await _supabase
+              .from('student_details')
+              .update(newData)
+              .eq('user_id', userId);
+
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Details updated successfully')),
+            );
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (_) => const Demopage1()),
+            );
+          }
+        } else {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const Demopage1()),
+          );
+        }
+      } else {
+        await _supabase.from('student_details').insert(newData);
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Details updated successfully')),
+            const SnackBar(content: Text('Details saved successfully')),
           );
-          Navigator.pop(context);
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const Demopage1()),
+          );
         }
-      } else {
-        // ✅ No changes → just navigate
-        Navigator.pop(context);
       }
-    } else {
-      // ✅ First time insert
-      await _supabase.from('student_details').insert(newData);
-
+    } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Details saved successfully')),
+          SnackBar(content: Text('Submit failed: $e')),
         );
-        Navigator.pop(context);
       }
+    } finally {
+      if (mounted) setState(() => _isSubmitting = false);
     }
-  } catch (e) {
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Submit failed: $e')),
-      );
-    }
-  } finally {
-    if (mounted) setState(() => _isSubmitting = false);
   }
-}
 
   Future<void> _logout() async {
     await _supabase.auth.signOut();
@@ -164,10 +170,6 @@ class _StudentFormPageState extends State<StudentFormPage> {
     return Scaffold(
       appBar: AppBar(
         backgroundColor: const Color.fromARGB(255, 247, 196, 196),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.black),
-          onPressed: () => Navigator.pop(context),
-        ),
         title: const Text(
           'Profile',
           style: TextStyle(
@@ -241,42 +243,42 @@ class _StudentFormPageState extends State<StudentFormPage> {
   }
 
   Widget _buildTextField(TextEditingController controller, String label,
-    {TextInputType keyboardType = TextInputType.text, int maxLines = 1}) {
-  return TextFormField(
-    controller: controller,
-    keyboardType: keyboardType,
-    maxLines: maxLines,
-    decoration: InputDecoration(
-      labelText: label,
-      labelStyle: const TextStyle(
-        fontSize: 24,
-        fontFamily: 'Inter',
-        color: Colors.black,
+      {TextInputType keyboardType = TextInputType.text, int maxLines = 1}) {
+    return TextFormField(
+      controller: controller,
+      keyboardType: keyboardType,
+      maxLines: maxLines,
+      decoration: InputDecoration(
+        labelText: label,
+        labelStyle: const TextStyle(
+          fontSize: 24,
+          fontFamily: 'Inter',
+          color: Colors.black,
+        ),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: const BorderSide(color: Colors.grey),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: const BorderSide(color: Colors.green, width: 2),
+        ),
       ),
-      border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(16),
-      ),
-      enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(16),
-        borderSide: const BorderSide(color: Colors.grey),
-      ),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(16),
-        borderSide: const BorderSide(color: Colors.green, width: 2),
-      ),
-    ),
-    validator: (v) {
-      if (v == null || v.trim().isEmpty) {
-        return 'Required';
-      }
-      if (label == 'Contact No') {
-        final regex = RegExp(r'^[6-9]\d{9}$'); // ✅ 10-digit only
-        if (!regex.hasMatch(v.trim())) {
-          return 'Enter a valid 10-digit number';
+      validator: (v) {
+        if (v == null || v.trim().isEmpty) {
+          return 'Required';
         }
-      }
-      return null;
-    },
-  );
-}
+        if (label == 'Contact No') {
+          final regex = RegExp(r'^[6-9]\d{9}$');
+          if (!regex.hasMatch(v.trim())) {
+            return 'Enter a valid 10-digit number';
+          }
+        }
+        return null;
+      },
+    );
+  }
 }

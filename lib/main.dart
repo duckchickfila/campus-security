@@ -3,6 +3,7 @@ import 'package:demo_app/demo_page.dart'; // your main screen
 import 'package:demo_app/login_page.dart'; // ✅ your login page
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:demo_app/demo_page.dart';
+import 'package:demo_app/guide_page.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -16,6 +17,7 @@ class _LoginPageState extends State<LoginPage> {
 
   bool _isLoading = false;
   bool _isLogin = true; // ✅ toggle between login and signup
+  String _selectedRole = 'student'; // ✅ default role
 
   SupabaseClient get _supabase => Supabase.instance.client;
 
@@ -28,6 +30,14 @@ class _LoginPageState extends State<LoginPage> {
 
   Future<void> _authenticate() async {
     if (!_formKey.currentState!.validate()) return;
+
+    // ✅ Ensure role is selected
+    if (_selectedRole.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please select a role')),
+      );
+      return;
+    }
 
     setState(() => _isLoading = true);
 
@@ -44,10 +54,34 @@ class _LoginPageState extends State<LoginPage> {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text('Login successful')),
             );
-            Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(builder: (context) => const Demopage1()),
-            );
+
+            // ✅ Role-based flow
+            if (_selectedRole == 'student') {
+              try {
+                await _supabase.from('student_details').insert({
+                  'user_id': response.user!.id,
+                  'email': _emailController.text.trim(),
+                });
+              } catch (e) {
+                debugPrint('Insert into student_details failed: $e');
+                // continue anyway
+              }
+
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => GuidePage(
+                    emailController: _emailController,
+                    passwordController: _passwordController,
+                  ),
+                ),
+              );
+            } else if (_selectedRole == 'security') {
+              // Placeholder for security role
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Security role flow coming soon')),
+              );
+            }
           }
         }
       } else {
@@ -111,6 +145,28 @@ class _LoginPageState extends State<LoginPage> {
                 _buildTextField(_passwordController, 'Password',
                     obscureText: true),
                 const SizedBox(height: 32),
+
+                // ✅ Role Selection
+                const Text(
+                  'Select Role:',
+                  style: TextStyle(
+                    fontSize: 22,
+                    fontFamily: 'Inter',
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    _buildRoleButton('student', Icons.school),
+                    const SizedBox(width: 20),
+                    _buildRoleButton('security', Icons.security),
+                  ],
+                ),
+                const SizedBox(height: 32),
+
                 SizedBox(
                   width: double.infinity,
                   height: 50,
@@ -201,6 +257,42 @@ class _LoginPageState extends State<LoginPage> {
         }
         return null;
       },
+    );
+  }
+
+  Widget _buildRoleButton(String role, IconData icon) {
+    final isSelected = _selectedRole == role;
+    return GestureDetector(
+      onTap: () {
+        setState(() => _selectedRole = role);
+      },
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: isSelected ? Colors.green : Colors.grey[200],
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: isSelected ? Colors.green : Colors.grey,
+            width: 2,
+          ),
+        ),
+        child: Column(
+          children: [
+            Icon(icon,
+                size: 40, color: isSelected ? Colors.white : Colors.black),
+            const SizedBox(height: 8),
+            Text(
+              role[0].toUpperCase() + role.substring(1),
+              style: TextStyle(
+                fontSize: 18,
+                fontFamily: 'Inter',
+                fontWeight: FontWeight.bold,
+                color: isSelected ? Colors.white : Colors.black,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
