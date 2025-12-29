@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'recording_screen.dart';
 import 'custom_appbar.dart';
 import 'submit_report_page.dart';
@@ -8,59 +9,83 @@ class Demopage1 extends StatefulWidget {
   const Demopage1({super.key});
 
   @override
-  State<Demopage1> createState() {
-    return _DemopageState();
-  }
+  State<Demopage1> createState() => _DemopageState();
 }
 
 class _DemopageState extends State<Demopage1> {
-  double result = 0;
-  final TextEditingController texteditingcontroller = TextEditingController();
+  late Future<List<Map<String, dynamic>>> _reportsFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _reportsFuture = fetchUserReports();
+  }
+
+  /// ✅ Fetch reports for the logged-in user
+  Future<List<Map<String, dynamic>>> fetchUserReports() async {
+    try {
+      final userId = Supabase.instance.client.auth.currentUser?.id;
+      if (userId == null) return [];
+
+      final response = await Supabase.instance.client
+          .from('normal_reports')
+          .select()
+          .eq('user_id', userId)
+          .order('date_submitted', ascending: false);
+
+      // response is already the data (List<dynamic>)
+      return List<Map<String, dynamic>>.from(response as List);
+    } catch (e) {
+      print('Error fetching reports: $e');
+      return [];
+    }
+  }
 
   Widget _buildReportCard({
-  required String type,
-  required String date,
-  required Color color,
-  required IconData icon,
-}) {
-  return Card(
-    elevation: 8,
-    margin: EdgeInsets.zero, // prevents extra white space
-    shape: RoundedRectangleBorder(
-      borderRadius: BorderRadius.circular(12),
-    ),
-    clipBehavior: Clip.antiAlias, // ensures corners are clipped
-    color: color,
-    child: Padding(
-      padding: const EdgeInsets.all(16),
-      child: Row(
-        children: [
-          Icon(icon, size: 28),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Type: $type',
-                    style: const TextStyle(
-                        fontSize: 24, fontWeight: FontWeight.bold)),
-                Text('Submitted On: $date',
-                    style: const TextStyle(fontSize: 20)),
-              ],
-            ),
-          ),
-        ],
+    required String type,
+    required String date,
+    required String label,   // ✅ new parameter
+    required Widget iconWidget,
+    required Color color,
+  }) {
+    return Card(
+      elevation: 8,
+      margin: EdgeInsets.zero,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
       ),
-    ),
-  );
-}
+      clipBehavior: Clip.antiAlias,
+      color: color,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            iconWidget,
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Type: $type',
+                      style: const TextStyle(
+                          fontSize: 20, fontWeight: FontWeight.bold)),
+                  Text('$label: $date',   // ✅ show label + date
+                      style: const TextStyle(fontSize: 16)),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: const CustomAppBar(),
-      body:
-       Padding(
+      body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.center,
@@ -81,11 +106,14 @@ class _DemopageState extends State<Demopage1> {
                       statuses[Permission.location]!.isGranted) {
                     Navigator.push(
                       context,
-                      MaterialPageRoute(builder: (_) => const RecordingScreen()),
+                      MaterialPageRoute(
+                          builder: (_) => const RecordingScreen()),
                     );
                   } else {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Camera, mic & location permissions required')),
+                      const SnackBar(
+                          content: Text(
+                              'Camera, mic & location permissions required')),
                     );
                   }
                 },
@@ -93,7 +121,7 @@ class _DemopageState extends State<Demopage1> {
                   backgroundColor: Colors.red,
                   elevation: 8,
                   shape: const CircleBorder(),
-                  padding: const EdgeInsets.all(60), // makes it large & circular
+                  padding: const EdgeInsets.all(60),
                 ),
                 child: const Text(
                   'SOS',
@@ -120,14 +148,18 @@ class _DemopageState extends State<Demopage1> {
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color.fromARGB(255, 106, 178, 237),
                 elevation: 10,
-                padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 32),
+                padding:
+                    const EdgeInsets.symmetric(vertical: 16, horizontal: 32),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),
               ),
               child: const Text(
                 '+ Report',
-                style: TextStyle(fontSize: 28, color: Colors.white, fontWeight: FontWeight.bold),
+                style: TextStyle(
+                    fontSize: 28,
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold),
               ),
             ),
             const SizedBox(height: 24),
@@ -142,32 +174,61 @@ class _DemopageState extends State<Demopage1> {
             const SizedBox(height: 12),
             // Scrollable Report History
             Expanded(
-              child: ListView(
-                children: [
-                  GestureDetector(
-                    onTap: () {
-                      print('Open report details: Theft');
+              child: FutureBuilder<List<Map<String, dynamic>>>(
+                future: _reportsFuture,
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  if (snapshot.hasError) {
+                    return Center(
+                        child: Text("Error: ${snapshot.error.toString()}"));
+                  }
+                  final reports = snapshot.data ?? [];
+                  if (reports.isEmpty) {
+                    return const Center(child: Text("No reports found"));
+                  }
+
+                  return ListView.separated(
+                    itemCount: reports.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 12),
+                    itemBuilder: (context, index) {
+                      final report = reports[index];
+                      final status = report['status'];
+                      final iconWidget = status == 'reviewed'
+                          ? const Icon(Icons.check_circle, color: Colors.green, size: 28)
+                          : const Icon(Icons.access_time, color: Colors.red, size: 28);
+
+                      // ✅ compute lastEdited and label BEFORE returning the widget
+                      final lastEdited = report['updated_at'] ?? report['date_submitted'];
+                      final isEdited = report['updated_at'] != null;
+                      final label = isEdited ? "Last Edited On" : "Submitted On";
+
+                      return GestureDetector(
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => SubmitReportPage(
+                                reportData: report,
+                                isEditable: status == 'pending',
+                              ),
+                            ),
+                          );
+                        },
+                        child: _buildReportCard(
+                          type: report['type'],
+                          date: lastEdited.toString().split('T')[0], // ✅ show latest date
+                          label: label,                               // ✅ pass label
+                          color: status == 'reviewed'
+                              ? const Color.fromARGB(255, 200, 255, 200)
+                              : const Color.fromARGB(255, 255, 220, 220),
+                          iconWidget: iconWidget,
+                        ),
+                      );
                     },
-                    child: _buildReportCard(
-                      type: 'Theft',
-                      date: '02-01-2015',
-                      color: const Color.fromARGB(255, 147, 204, 251),
-                      icon: Icons.edit,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  GestureDetector(
-                    onTap: () {
-                      print('Open report details: Theft verified');
-                    },
-                    child: _buildReportCard(
-                      type: 'Theft',
-                      date: '02-01-2015',
-                      color: const Color.fromARGB(255, 248, 240, 171),
-                      icon: Icons.check_circle,
-                    ),
-                  ),
-                ],
+                  );
+                },
               ),
             ),
           ],

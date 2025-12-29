@@ -4,6 +4,7 @@ import 'dart:async';
 import 'dart:io';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:permission_handler/permission_handler.dart'; // ✅ new import
 
 class RecordingScreen extends StatefulWidget {
   const RecordingScreen({super.key});
@@ -19,28 +20,57 @@ class _RecordingScreenState extends State<RecordingScreen> {
   @override
   void initState() {
     super.initState();
-    _initCameraAndStartSOS();
+    _requestPermissionsAndStart();
+  }
+
+  /// ✅ Request camera, microphone, and location permissions before starting SOS
+  Future<void> _requestPermissionsAndStart() async {
+    final cameraStatus = await Permission.camera.request();
+    final micStatus = await Permission.microphone.request();
+    final locationStatus = await Permission.locationWhenInUse.request();
+
+    if (cameraStatus.isGranted && micStatus.isGranted && locationStatus.isGranted) {
+      _initCameraAndStartSOS();
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Permissions denied. SOS cannot start.')),
+        );
+        Navigator.pop(context);
+      }
+    }
   }
 
   Future<void> _initCameraAndStartSOS() async {
-    final cameras = await availableCameras();
-    final frontCamera = cameras.firstWhere(
-      (cam) => cam.lensDirection == CameraLensDirection.front,
-    );
+    try {
+      final cameras = await availableCameras();
+      final frontCamera = cameras.firstWhere(
+        (cam) => cam.lensDirection == CameraLensDirection.front,
+      );
 
-    _controller = CameraController(frontCamera, ResolutionPreset.low);
-    await _controller!.initialize();
-    if (mounted) setState(() {});
+      _controller = CameraController(frontCamera, ResolutionPreset.low);
+      await _controller!.initialize();
 
-    // ✅ Start SOS flow immediately
-    _startSOS();
+      if (mounted) setState(() {});
+
+      // ✅ Start SOS flow immediately
+      _startSOS();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Camera init failed: $e')),
+        );
+        Navigator.pop(context);
+      }
+    }
   }
 
   Future<void> _startSOS() async {
     try {
-      // ✅ Get current location (permission already asked in demo_page)
+      // ✅ Get current location
       Position position = await Geolocator.getCurrentPosition(
-          desiredAccuracy: LocationAccuracy.high);
+        desiredAccuracy: LocationAccuracy.high,
+      );
       final location = '${position.latitude}, ${position.longitude}';
 
       // ✅ Start recording
@@ -52,10 +82,10 @@ class _RecordingScreenState extends State<RecordingScreen> {
       Future.delayed(const Duration(seconds: 10), () async {
         if (!_isRecording || _controller == null) return;
 
-        final file = await _controller!.stopVideoRecording();
-        setState(() => _isRecording = false);
-
         try {
+          final file = await _controller!.stopVideoRecording();
+          setState(() => _isRecording = false);
+
           final supabase = Supabase.instance.client;
           final fileName =
               'sos_videos/${DateTime.now().millisecondsSinceEpoch}.mp4';
@@ -77,6 +107,7 @@ class _RecordingScreenState extends State<RecordingScreen> {
                 .select('name')
                 .eq('user_id', userId)
                 .limit(1);
+
             if (profile.isNotEmpty) {
               studentName = profile.first['name'] ?? 'Unknown';
             }
@@ -123,7 +154,9 @@ class _RecordingScreenState extends State<RecordingScreen> {
   @override
   Widget build(BuildContext context) {
     if (_controller == null || !_controller!.value.isInitialized) {
-      return const Center(child: CircularProgressIndicator());
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
     }
 
     return Scaffold(

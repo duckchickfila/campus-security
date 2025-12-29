@@ -6,8 +6,9 @@ import 'custom_appbar.dart';
 import 'demo_page.dart'; // back navigation target
 
 class SubmitReportPage extends StatefulWidget {
-  const SubmitReportPage({super.key});
-
+  const SubmitReportPage({super.key, this.reportData, this.isEditable = true});
+  final Map<String, dynamic>? reportData;
+  final bool isEditable;
   @override
   State<SubmitReportPage> createState() => _SubmitReportPageState();
 }
@@ -32,6 +33,23 @@ class _SubmitReportPageState extends State<SubmitReportPage> {
   ];
 
   SupabaseClient get _supabase => Supabase.instance.client;
+
+  @override
+  void initState() {
+    super.initState();
+
+    // Prefill values if reportData is passed
+    if (widget.reportData != null) {
+      selectedType = widget.reportData!['type'];
+      _locationController.text = widget.reportData!['location'] ?? '';
+      _detailsController.text = widget.reportData!['details'] ?? '';
+
+      // Parse date if available
+      if (widget.reportData!['date_submitted'] != null) {
+        selectedDate = DateTime.tryParse(widget.reportData!['date_submitted']);
+      }
+    }
+  }
 
   @override
   void dispose() {
@@ -77,49 +95,68 @@ class _SubmitReportPageState extends State<SubmitReportPage> {
       // ✅ Upload attachments
       final uploadedUrls = <String>[];
       for (final file in attachments) {
-        // Get current user safely
         final user = _supabase.auth.currentUser;
-        if (user == null) {
-          throw Exception("User not logged in");
-        }
+        if (user == null) throw Exception("User not logged in");
 
-        // Read file bytes
         final bytes = await file.readAsBytes();
+        final path =
+            'normal_reports/${user.id}/${DateTime.now().millisecondsSinceEpoch}_${file.name}';
 
-        // Build path: videos/normal_reports/{user.id}/{timestamp_filename}
-        final path = 'normal_reports/${user.id}/${DateTime.now().millisecondsSinceEpoch}_${file.name}';
-
-        // Upload to Supabase Storage
         await _supabase.storage.from('videos').uploadBinary(path, bytes);
-
-        // Get public URL
         final publicUrl = _supabase.storage.from('videos').getPublicUrl(path);
         uploadedUrls.add(publicUrl);
       }
 
-      // ✅ Insert report into normal_reports
-      await _supabase.from('normal_reports').insert({
-        'user_id': user.id,
-        'student_id': student['id'],
-        'student_name': student['name'],
-        'enrollment_number': student['enrollment_no'],
-        'type': selectedType,
-        'location': _locationController.text.trim(),
-        'date': selectedDate!.toIso8601String(),
-        'details': _detailsController.text.trim(),
-        'attachments': uploadedUrls,
-        'status': 'pending',
-        'created_at': DateTime.now().toIso8601String(),
-      });
+      if (widget.reportData != null) {
+        // ✅ Update existing report
+        final reportId = widget.reportData!['id'];
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Report submitted successfully')),
-        );
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const Demopage1()),
-        );
+        await _supabase.from('normal_reports').update({
+          'type': selectedType,
+          'location': _locationController.text.trim(),
+          'date': selectedDate!.toIso8601String(),
+          'details': _detailsController.text.trim(),
+          'attachments': uploadedUrls.isNotEmpty
+              ? uploadedUrls
+              : widget.reportData!['attachments'],
+          'updated_at': DateTime.now().toIso8601String(), // ✅ last edit timestamp
+        }).eq('id', reportId);
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Report updated successfully')),
+          );
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const Demopage1()),
+          );
+        }
+      } else {
+        // ✅ Insert new report
+        await _supabase.from('normal_reports').insert({
+          'user_id': user.id,
+          'student_id': student['id'],
+          'student_name': student['name'],
+          'enrollment_number': student['enrollment_no'],
+          'type': selectedType,
+          'location': _locationController.text.trim(),
+          'date': selectedDate!.toIso8601String(),        // incident date
+          'details': _detailsController.text.trim(),
+          'attachments': uploadedUrls,
+          'status': 'pending',
+          'created_at': DateTime.now().toIso8601String(), // system timestamp
+          'date_submitted': DateTime.now().toIso8601String(), // ✅ new field
+        });
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Report submitted successfully')),
+          );
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const Demopage1()),
+          );
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -148,6 +185,8 @@ class _SubmitReportPageState extends State<SubmitReportPage> {
       color: Colors.black,
     );
 
+    final status = widget.reportData?['status'] ?? 'pending';
+
     return Scaffold(
       appBar: CustomAppBar(
         leading: IconButton(
@@ -173,10 +212,58 @@ class _SubmitReportPageState extends State<SubmitReportPage> {
             key: _formKey,
             child: Column(
               children: [
+                // ✅ Status row
+                Row(
+                  children: [
+                    Icon(
+                      status == 'reviewed'
+                          ? Icons.check_circle
+                          : Icons.access_time,
+                      color: status == 'reviewed' ? Colors.green : Colors.red,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      "Status: $status",
+                      style: const TextStyle(
+                          fontSize: 18, fontWeight: FontWeight.bold),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+
+                // ✅ Banner if reviewed
+                if (!widget.isEditable)
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    margin: const EdgeInsets.only(bottom: 16),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade300,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Text(
+                      "This report has been reviewed and cannot be edited.",
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.black87,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+
+                // ✅ Type dropdown
                 DropdownButtonFormField<String>(
                   value: selectedType,
-                  items: types.map((t) => DropdownMenuItem(value: t, child: Text(t, style: inputTextStyle))).toList(),
-                  onChanged: (val) => setState(() => selectedType = val),
+                  items: types
+                      .map((t) => DropdownMenuItem(
+                            value: t,
+                            child: Text(t, style: inputTextStyle),
+                          ))
+                      .toList(),
+                  onChanged: widget.isEditable
+                      ? (val) => setState(() => selectedType = val)
+                      : null,
                   decoration: InputDecoration(
                     labelText: 'Type',
                     labelStyle: labelStyle,
@@ -184,12 +271,16 @@ class _SubmitReportPageState extends State<SubmitReportPage> {
                       borderRadius: BorderRadius.circular(20),
                     ),
                   ),
-                  validator: (val) => val == null ? 'Please select a type' : null,
+                  validator: (val) =>
+                      val == null ? 'Please select a type' : null,
                 ),
                 const SizedBox(height: 20),
+
+                // ✅ Location field
                 TextFormField(
                   controller: _locationController,
                   style: inputTextStyle,
+                  enabled: widget.isEditable,
                   decoration: InputDecoration(
                     labelText: 'Location',
                     labelStyle: labelStyle,
@@ -197,9 +288,12 @@ class _SubmitReportPageState extends State<SubmitReportPage> {
                       borderRadius: BorderRadius.circular(20),
                     ),
                   ),
-                  validator: (v) => v == null || v.trim().isEmpty ? 'Required' : null,
+                  validator: (v) =>
+                      v == null || v.trim().isEmpty ? 'Required' : null,
                 ),
                 const SizedBox(height: 20),
+
+                // ✅ Date picker
                 ListTile(
                   title: Text(
                     selectedDate == null
@@ -208,21 +302,28 @@ class _SubmitReportPageState extends State<SubmitReportPage> {
                     style: inputTextStyle,
                   ),
                   trailing: const Icon(Icons.calendar_today),
-                  onTap: () async {
-                    final picked = await showDatePicker(
-                      context: context,
-                      initialDate: DateTime.now(),
-                      firstDate: DateTime(2020),
-                      lastDate: DateTime(2100),
-                    );
-                    if (picked != null) setState(() => selectedDate = picked);
-                  },
+                  onTap: widget.isEditable
+                      ? () async {
+                          final picked = await showDatePicker(
+                            context: context,
+                            initialDate: DateTime.now(),
+                            firstDate: DateTime(2020),
+                            lastDate: DateTime(2100),
+                          );
+                          if (picked != null) {
+                            setState(() => selectedDate = picked);
+                          }
+                        }
+                      : null,
                 ),
                 const SizedBox(height: 20),
+
+                // ✅ Details field
                 TextFormField(
                   controller: _detailsController,
                   maxLines: 4,
                   style: inputTextStyle,
+                  enabled: widget.isEditable,
                   decoration: InputDecoration(
                     labelText: 'Details of Incident',
                     labelStyle: labelStyle,
@@ -230,23 +331,25 @@ class _SubmitReportPageState extends State<SubmitReportPage> {
                       borderRadius: BorderRadius.circular(20),
                     ),
                   ),
-                  validator: (v) => v == null || v.trim().isEmpty ? 'Required' : null,
+                  validator: (v) =>
+                      v == null || v.trim().isEmpty ? 'Required' : null,
                 ),
                 const SizedBox(height: 20),
 
-                // ✅ Attachments button + guidance
+                // ✅ Attachments button
                 ElevatedButton.icon(
                   icon: const Icon(Icons.attach_file, size: 24),
                   label: const Text(
                     'Add Attachments',
                     style: inputTextStyle,
                   ),
-                  onPressed: _pickAttachments,
+                  onPressed: widget.isEditable ? _pickAttachments : null,
                   style: ElevatedButton.styleFrom(
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(20),
                     ),
-                    padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
+                    padding: const EdgeInsets.symmetric(
+                        vertical: 16, horizontal: 24),
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -293,9 +396,11 @@ class _SubmitReportPageState extends State<SubmitReportPage> {
                           ),
                           IconButton(
                             icon: const Icon(Icons.close, color: Colors.red),
-                            onPressed: () {
-                              setState(() => attachments.remove(file));
-                            },
+                            onPressed: widget.isEditable
+                                ? () {
+                                    setState(() => attachments.remove(file));
+                                  }
+                                : null,
                           ),
                         ],
                       );
@@ -304,32 +409,36 @@ class _SubmitReportPageState extends State<SubmitReportPage> {
                 ],
 
                 const SizedBox(height: 28),
-                SizedBox(
-                  width: double.infinity,
-                  height: 55,
-                  child: ElevatedButton(
-                    onPressed: _isSubmitting ? null : _submitReport,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(20),
+
+                // ✅ Submit button only if editable
+                if (widget.isEditable)
+                  SizedBox(
+                    width: double.infinity,
+                    height: 55,
+                    child: ElevatedButton(
+                      onPressed: _isSubmitting ? null : _submitReport,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(20),
+                        ),
                       ),
-                    ),
-                    child: _isSubmitting
-                        ? const CircularProgressIndicator(
-                            valueColor: AlwaysStoppedAnimation(Colors.white),
-                          )
-                        : const Text(
-                            'Submit',
-                            style: TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
-                              fontFamily: 'Inter',
-                              color: Colors.white,
+                      child: _isSubmitting
+                          ? const CircularProgressIndicator(
+                              valueColor:
+                                  AlwaysStoppedAnimation(Colors.white),
+                            )
+                          : const Text(
+                              'Submit',
+                              style: TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                                fontFamily: 'Inter',
+                                color: Colors.white,
+                              ),
                             ),
-                          ),
+                    ),
                   ),
-                ),
               ],
             ),
           ),
