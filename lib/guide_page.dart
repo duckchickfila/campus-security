@@ -6,6 +6,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:demo_app/demo_page.dart';
 import 'package:demo_app/student_form_page.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'tutorial_pages.dart';
 
 class GuidePage extends StatefulWidget {
   final TextEditingController emailController;
@@ -95,22 +96,42 @@ Future<void> _proceed() async {
   final gpsEnabled = await Geolocator.isLocationServiceEnabled();
 
   if (locationGranted && cameraGranted && micGranted && overlayGranted && gpsEnabled) {
-    if (mounted) {
-      final profileComplete = await _isProfileComplete();
+  if (mounted) {
+    final profileComplete = await _isProfileComplete();
 
-      if (profileComplete) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const Demopage1()),
-        );
-      } else {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const StudentFormPage()),
-        );
+    if (profileComplete) {
+      final supabase = Supabase.instance.client;
+      final userId = supabase.auth.currentUser?.id;
+
+      if (userId != null) {
+        final profile = await supabase
+            .from('student_details')
+            .select('seen_tutorial')
+            .eq('user_id', userId)
+            .maybeSingle();
+
+        final seenTutorial = profile?['seen_tutorial'] ?? false;
+
+        if (seenTutorial) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const Demopage1()),
+          );
+        } else {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const TutorialPages()),
+          );
+        }
       }
+    } else {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const StudentFormPage()),
+      );
     }
-  } else {
+  }
+} else {
     if (!locationGranted) {
       _showReasonDialog('Location is required to tag incidents.', Permission.location);
     } else if (!cameraGranted) {

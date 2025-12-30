@@ -1,27 +1,23 @@
-import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'recording_screen.dart';
 
 class SOSHandler {
-  static const MethodChannel _channel =
-      MethodChannel('com.example.demoapp/sos');
+  static const MethodChannel _channel = MethodChannel('sos_channel');
 
   static void init(GlobalKey<NavigatorState> navigatorKey) {
-    print("SOSHandler.init attached"); // Debug: confirm handler attached
-
     _channel.setMethodCallHandler((call) async {
-      print("MethodChannel call received: ${call.method}"); // Debug
-
       if (call.method == "triggerSOS") {
-        final ctx = navigatorKey.currentContext;
-        if (ctx != null) {
-          ScaffoldMessenger.of(ctx).showSnackBar(
-            const SnackBar(content: Text("SOS Triggered from native!")),
+        debugPrint("🚨 SOS Triggered from native Activity");
+
+        final nav = navigatorKey.currentState;
+        if (nav != null) {
+          nav.push(
+            MaterialPageRoute(builder: (_) => const RecordingScreen()),
           );
+        } else {
+          debugPrint("❌ NavigatorState is null, cannot push RecordingScreen");
         }
-        navigatorKey.currentState?.push(
-          MaterialPageRoute(builder: (_) => const RecordingScreen()),
-        );
       }
     });
   }
