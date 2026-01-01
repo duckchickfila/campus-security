@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:demo_app/demo_page.dart';
-import 'package:demo_app/login_page.dart';
+import 'package:demo_app/student_side/demo_page.dart';
+import 'package:demo_app/student_side/login_page.dart';
+import 'package:demo_app/student_side/tutorial_pages.dart';
+import 'package:demo_app/guard_side/main_page.dart';
+import 'package:demo_app/guard_side/tutorial_pages.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'soshandler.dart';
-import 'tutorial_pages.dart';
 
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
@@ -32,14 +34,32 @@ class MyApp extends StatelessWidget {
     final userId = Supabase.instance.client.auth.currentUser?.id;
     if (userId == null) return const LoginPage();
 
-    final profile = await Supabase.instance.client
+    // ✅ Check if user exists in student_details
+    final studentProfile = await Supabase.instance.client
         .from('student_details')
         .select('seen_tutorial')
         .eq('user_id', userId)
         .maybeSingle();
 
-    final seenTutorial = profile?['seen_tutorial'] ?? false;
-    return seenTutorial ? const Demopage1() : const TutorialPages();
+    if (studentProfile != null) {
+      final seenTutorial = studentProfile['seen_tutorial'] ?? false;
+      return seenTutorial ? const Demopage1() : const TutorialPages();
+    }
+
+    // ✅ Otherwise check guard_details
+    final guardProfile = await Supabase.instance.client
+        .from('guard_details')
+        .select('seen_tutorial')
+        .eq('user_id', userId)
+        .maybeSingle();
+
+    if (guardProfile != null) {
+      final seenTutorial = guardProfile['seen_tutorial'] ?? false;
+      return seenTutorial ? const GuardMainPage() : const GuardTutorialPages();
+    }
+
+    // If neither profile exists, fallback to login
+    return const LoginPage();
   }
 
   @override

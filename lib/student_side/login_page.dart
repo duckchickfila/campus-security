@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:demo_app/demo_page.dart';
-import 'package:demo_app/guide_page.dart';
+import 'package:demo_app/student_side/demo_page.dart';
+import 'package:demo_app/student_side/guide_page.dart';
+import 'package:demo_app/guard_side/guard_guide_page.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -28,93 +29,141 @@ class _LoginPageState extends State<LoginPage> {
     super.dispose();
   }
 
-  Future<void> _authenticate() async {
-    if (!_formKey.currentState!.validate()) return;
+Future<void> _authenticate() async {
+  if (!_formKey.currentState!.validate()) return;
 
-    // ✅ Ensure role is selected
-    if (_selectedRole.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select a role')),
-      );
-      return;
-    }
-
-    setState(() => _isLoading = true);
-
-    try {
-      if (_isLogin) {
-        // ✅ Login
-        final response = await _supabase.auth.signInWithPassword(
-          email: _emailController.text.trim(),
-          password: _passwordController.text.trim(),
-        );
-
-        if (response.user != null) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Login successful')),
-            );
-
-            // ✅ Role-based flow
-            if (_selectedRole == 'student') {
-              try {
-                await _supabase.from('student_details').insert({
-                  'user_id': response.user!.id,
-                  'email': _emailController.text.trim(),
-                });
-              } catch (e) {
-                debugPrint('Insert into student_details failed: $e');
-                // continue anyway
-              }
-
-              Navigator.pushReplacement(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => GuidePage(
-                    emailController: _emailController,
-                    passwordController: _passwordController,
-                  ),
-                ),
-              );
-            } else if (_selectedRole == 'security') {
-              // Placeholder for security role
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Security role flow coming soon')),
-              );
-            }
-          }
-        }
-      } else {
-        // ✅ Sign Up
-        final response = await _supabase.auth.signUp(
-          email: _emailController.text.trim(),
-          password: _passwordController.text.trim(),
-        );
-
-        if (response.user != null) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Account created! Please log in.')),
-            );
-            setState(() => _isLogin = true); // switch to login mode
-          }
-        }
-      }
-    } catch (e) {
-      final errorMessage = e.toString();
-      if (errorMessage.contains('email_not_confirmed')) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Please confirm your email before logging in')),
-        );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Auth failed: $e')),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
-    }
+  // ✅ Ensure role is selected
+  if (_selectedRole.isEmpty) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Please select a role')),
+    );
+    return;
   }
+
+  setState(() => _isLoading = true);
+
+  try {
+    if (_isLogin) {
+      // ✅ Login
+      final response = await _supabase.auth.signInWithPassword(
+        email: _emailController.text.trim(),
+        password: _passwordController.text.trim(),
+      );
+
+      if (response.user != null && mounted) {
+        final userId = response.user!.id;
+
+        if (_selectedRole == 'student') {
+          // ✅ Check if user exists in student_details
+          final studentRow = await _supabase
+              .from('student_details')
+              .select('user_id')
+              .eq('user_id', userId)
+              .maybeSingle();
+
+          if (studentRow == null) {
+            // ❌ Prevent guard logging in as student
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('You are not registered as a student')),
+            );
+            return;
+          }
+
+          // ✅ Safe upsert
+          try {
+            await _supabase.from('student_details').upsert({
+              'user_id': userId,
+              'email': _emailController.text.trim(),
+            });
+          } catch (e) {
+            debugPrint('Upsert into student_details failed: $e');
+          }
+
+          // ✅ Show success only after role validation passes
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Login successful')),
+          );
+
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (_) => GuidePage(
+                emailController: _emailController,
+                passwordController: _passwordController,
+              ),
+            ),
+          );
+        } else if (_selectedRole == 'security') {
+          // ✅ Check if user exists in guard_details
+          final guardRow = await _supabase
+              .from('guard_details')
+              .select('user_id')
+              .eq('user_id', userId)
+              .maybeSingle();
+
+          if (guardRow == null) {
+            // ❌ Prevent student logging in as guard
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('You are not registered as a guard')),
+            );
+            return;
+          }
+
+          // ✅ Safe upsert
+          try {
+            await _supabase.from('guard_details').upsert({
+              'user_id': userId,
+              'email': _emailController.text.trim(),
+            });
+          } catch (e) {
+            debugPrint('Upsert into guard_details failed: $e');
+          }
+
+          // ✅ Show success only after role validation passes
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Login successful')),
+          );
+
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (_) => GuardGuidePage(
+                emailController: _emailController,
+                passwordController: _passwordController,
+              ),
+            ),
+          );
+        }
+      }
+    } else {
+      // ✅ Sign Up
+      final response = await _supabase.auth.signUp(
+        email: _emailController.text.trim(),
+        password: _passwordController.text.trim(),
+      );
+
+      if (response.user != null && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Account created! Please log in.')),
+        );
+        setState(() => _isLogin = true); // switch to login mode
+      }
+    }
+  } catch (e) {
+    final errorMessage = e.toString();
+    if (errorMessage.contains('email_not_confirmed')) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please confirm your email before logging in')),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Auth failed: $e')),
+      );
+    }
+  } finally {
+    if (mounted) setState(() => _isLoading = false);
+  }
+}
 
   @override
   Widget build(BuildContext context) {

@@ -3,8 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:demo_app/demo_page.dart';
-import 'package:demo_app/student_form_page.dart';
+import 'package:demo_app/student_side/demo_page.dart';
+import 'package:demo_app/student_side/student_form_page.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'tutorial_pages.dart';
 
