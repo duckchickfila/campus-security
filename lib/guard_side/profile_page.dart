@@ -95,7 +95,7 @@ class _GuardProfilePageState extends State<GuardProfilePage> {
     final fileName = "guard_$userId.jpg";
 
     try {
-      // Upload to Supabase Storage
+      // Upload to Supabase Storage (overwrite if exists)
       await _supabase.storage.from('guard_photos').uploadBinary(
         fileName,
         fileBytes,
@@ -103,12 +103,14 @@ class _GuardProfilePageState extends State<GuardProfilePage> {
       );
 
       // Get public URL
-      final publicUrl = _supabase.storage.from('guard_photos').getPublicUrl(fileName);
+      final publicUrl =
+          _supabase.storage.from('guard_photos').getPublicUrl(fileName);
 
-      // Save URL to guard_details
-      await _supabase.from('guard_details')
-          .update({'profile_photo': publicUrl})
-          .eq('user_id', userId);
+      // ✅ Use update instead of upsert
+      await _supabase
+        .from('guard_details')
+        .update({'profile_photo': publicUrl})
+        .eq('user_id', userId);
 
       if (mounted) {
         setState(() => _photoUrl = publicUrl);
@@ -127,66 +129,51 @@ class _GuardProfilePageState extends State<GuardProfilePage> {
   }
 
   Future<void> _submitDetails() async {
-    if (!_formKey.currentState!.validate()) return;
+  if (!_formKey.currentState!.validate()) return;
 
-    setState(() => _isSubmitting = true);
+  setState(() => _isSubmitting = true);
 
-    try {
-      final userId = _supabase.auth.currentUser?.id;
-      if (userId == null) throw Exception("User not logged in");
+  try {
+    final userId = _supabase.auth.currentUser?.id;
+    if (userId == null) throw Exception("User not logged in");
 
-      final existing = await _supabase
-          .from('guard_details')
-          .select()
-          .eq('user_id', userId)
-          .limit(1);
+    final newData = {
+      'guard_id': _guardIdController.text.trim(),
+      'name': _nameController.text.trim(),
+      'contact_no': _contactController.text.trim(),
+      'email': _emailController.text.trim(),
+      'campus_zone': _campusZoneController.text.trim(),
+      'shift_start': _shiftStartController.text.trim(),
+      'shift_end': _shiftEndController.text.trim(),
+      'transport_mode': _transportController.text.trim(),
+      'profile_photo': _photoUrl,
+    };
 
-      final newData = {
-        'user_id': userId,
-        'guard_id': _guardIdController.text.trim(),
-        'name': _nameController.text.trim(),
-        'contact_no': _contactController.text.trim(),
-        'email': _emailController.text.trim(),
-        'campus_zone': _campusZoneController.text.trim(),
-        'shift_start': _shiftStartController.text.trim(),
-        'shift_end': _shiftEndController.text.trim(),
-        'transport_mode': _transportController.text.trim(),
-        'profile_photo': _photoUrl,
-      };
+    // ✅ Use update instead of upsert
+    await _supabase
+        .from('guard_details')
+        .update(newData)
+        .eq('user_id', userId);
 
-      if (existing.isNotEmpty) {
-        await _supabase.from('guard_details').update(newData).eq('user_id', userId);
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Details updated successfully')),
-          );
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (_) => const GuardMainPage()),
-          );
-        }
-      } else {
-        await _supabase.from('guard_details').insert(newData);
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Details saved successfully')),
-          );
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (_) => const GuardMainPage()),
-          );
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Submit failed: $e')),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isSubmitting = false);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Details saved successfully')),
+      );
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const GuardMainPage()),
+      );
     }
+  } catch (e) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Submit failed: $e')),
+      );
+    }
+  } finally {
+    if (mounted) setState(() => _isSubmitting = false);
   }
+}
 
   Future<void> _logout() async {
     await _supabase.auth.signOut();

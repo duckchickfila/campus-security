@@ -18,7 +18,7 @@ class _LoginPageState extends State<LoginPage> {
 
   bool _isLoading = false;
   bool _isLogin = true; // ✅ toggle between login and signup
-  String _selectedRole = 'student'; // ✅ default role
+  String _selectedRole = ''; // ✅ default role
 
   SupabaseClient get _supabase => Supabase.instance.client;
 
@@ -54,7 +54,6 @@ Future<void> _authenticate() async {
         final userId = response.user!.id;
 
         if (_selectedRole == 'student') {
-          // ✅ Check if user exists in student_details
           final studentRow = await _supabase
               .from('student_details')
               .select('user_id')
@@ -62,24 +61,17 @@ Future<void> _authenticate() async {
               .maybeSingle();
 
           if (studentRow == null) {
-            // ❌ Prevent guard logging in as student
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text('You are not registered as a student')),
             );
             return;
           }
 
-          // ✅ Safe upsert
-          try {
-            await _supabase.from('student_details').upsert({
-              'user_id': userId,
-              'email': _emailController.text.trim(),
-            });
-          } catch (e) {
-            debugPrint('Upsert into student_details failed: $e');
-          }
+          // ✅ Upsert with conflict target
+          await _supabase.from('student_details').upsert({
+            'user_id': userId,
+          }, onConflict: 'user_id');
 
-          // ✅ Show success only after role validation passes
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Login successful')),
           );
@@ -94,7 +86,6 @@ Future<void> _authenticate() async {
             ),
           );
         } else if (_selectedRole == 'security') {
-          // ✅ Check if user exists in guard_details
           final guardRow = await _supabase
               .from('guard_details')
               .select('user_id')
@@ -102,24 +93,16 @@ Future<void> _authenticate() async {
               .maybeSingle();
 
           if (guardRow == null) {
-            // ❌ Prevent student logging in as guard
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text('You are not registered as a guard')),
             );
             return;
           }
 
-          // ✅ Safe upsert
-          try {
-            await _supabase.from('guard_details').upsert({
-              'user_id': userId,
-              'email': _emailController.text.trim(),
-            });
-          } catch (e) {
-            debugPrint('Upsert into guard_details failed: $e');
-          }
+          await _supabase.from('guard_details').upsert({
+            'user_id': userId,
+          }, onConflict: 'user_id');
 
-          // ✅ Show success only after role validation passes
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Login successful')),
           );
@@ -136,13 +119,36 @@ Future<void> _authenticate() async {
         }
       }
     } else {
-      // ✅ Sign Up
+      // ✅ Sign Up (enforce manual role selection)
+      if (_selectedRole != 'student' && _selectedRole != 'security') {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please select Student or Security role before signing up')),
+        );
+        setState(() => _isLoading = false);
+        return;
+      }
+
       final response = await _supabase.auth.signUp(
         email: _emailController.text.trim(),
         password: _passwordController.text.trim(),
       );
 
       if (response.user != null && mounted) {
+        final userId = response.user!.id;
+
+        // ✅ Insert into correct role table at signup with tutorial flag
+        if (_selectedRole == 'student') {
+          await _supabase.from('student_details').insert({
+            'user_id': userId,
+            'seen_tutorial': false, // 👈 ensure tutorial shows first login
+          });
+        } else if (_selectedRole == 'security') {
+          await _supabase.from('guard_details').insert({
+            'user_id': userId,
+            'seen_tutorial': false, // 👈 same for guards if needed
+          });
+        }
+
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Account created! Please log in.')),
         );

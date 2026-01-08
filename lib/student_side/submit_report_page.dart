@@ -5,6 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'custom_appbar.dart';
 import 'demo_page.dart'; // back navigation target
 
+
 class SubmitReportPage extends StatefulWidget {
   const SubmitReportPage({super.key, this.reportData, this.isEditable = true});
   final Map<String, dynamic>? reportData;
@@ -17,7 +18,8 @@ class _SubmitReportPageState extends State<SubmitReportPage> {
   final _formKey = GlobalKey<FormState>();
 
   String? selectedType;
-  final _locationController = TextEditingController();
+  String? selectedLocation;
+  final _otherLocationController = TextEditingController();
   DateTime? selectedDate;
   final _detailsController = TextEditingController();
   List<XFile> attachments = [];
@@ -32,19 +34,38 @@ class _SubmitReportPageState extends State<SubmitReportPage> {
     'Stalking',
   ];
 
+  final zones = [
+    'Academic building',
+    'Classroom',
+    'Laboratory',
+    'Library',
+    'Lecture hall',
+    'Parking area',
+    'Internal road',
+    'Entry gate',
+    'Exit gate',
+    'Cafeteria',
+    'Washroom',
+    'Open ground',
+    'Security office',
+    'Other',
+  ];
+
   SupabaseClient get _supabase => Supabase.instance.client;
 
   @override
   void initState() {
     super.initState();
 
-    // Prefill values if reportData is passed
     if (widget.reportData != null) {
       selectedType = widget.reportData!['type'];
-      _locationController.text = widget.reportData!['location'] ?? '';
+      selectedLocation = widget.reportData!['location'];
       _detailsController.text = widget.reportData!['details'] ?? '';
 
-      // Parse date if available
+      if (selectedLocation == 'Other') {
+        _otherLocationController.text = widget.reportData!['location'] ?? '';
+      }
+
       if (widget.reportData!['date_submitted'] != null) {
         selectedDate = DateTime.tryParse(widget.reportData!['date_submitted']);
       }
@@ -53,121 +74,132 @@ class _SubmitReportPageState extends State<SubmitReportPage> {
 
   @override
   void dispose() {
-    _locationController.dispose();
+    _otherLocationController.dispose();
     _detailsController.dispose();
     super.dispose();
   }
 
-  /// ✅ Pick up to 4 images and 2 videos
-  Future<void> _pickAttachments() async {
-    final picker = ImagePicker();
+/// ✅ Pick up to 4 images and 2 videos
+Future<void> _pickAttachments() async {
+  final picker = ImagePicker();
 
-    // Pick multiple images (limit 4)
-    final List<XFile> images = await picker.pickMultiImage();
-    final limitedImages = images.take(4).toList();
+  final List<XFile> images = await picker.pickMultiImage();
+  final limitedImages = images.take(4).toList();
 
-    // Pick up to 2 videos
-    final List<XFile> videos = [];
-    for (int i = 0; i < 2; i++) {
-      final XFile? video = await picker.pickVideo(source: ImageSource.gallery);
-      if (video != null) videos.add(video);
-    }
-
-    setState(() => attachments = [...limitedImages, ...videos]);
+  final List<XFile> videos = [];
+  for (int i = 0; i < 2; i++) {
+    final XFile? video = await picker.pickVideo(source: ImageSource.gallery);
+    if (video != null) videos.add(video);
   }
 
-  Future<void> _submitReport() async {
-    if (!_formKey.currentState!.validate() || selectedType == null || selectedDate == null) return;
+  setState(() => attachments = [...limitedImages, ...videos]);
+}
 
-    setState(() => _isSubmitting = true);
+/// ✅ Submit or update a report
+Future<void> _submitReport() async {
+  if (!_formKey.currentState!.validate() || selectedType == null || selectedDate == null) return;
 
-    try {
-      final user = _supabase.auth.currentUser;
-      if (user == null) throw Exception("User not logged in");
+  setState(() => _isSubmitting = true);
 
-      // ✅ Fetch student details
-      final student = await _supabase
-          .from('student_details')
-          .select('id, name, enrollment_no')
-          .eq('user_id', user.id)
-          .single();
+  try {
+    final user = _supabase.auth.currentUser;
+    if (user == null) throw Exception("User not logged in");
 
-      // ✅ Upload attachments
-      final uploadedUrls = <String>[];
-      for (final file in attachments) {
-        final user = _supabase.auth.currentUser;
-        if (user == null) throw Exception("User not logged in");
+    final student = await _supabase
+        .from('student_details')
+        .select('id, name, enrollment_no')
+        .eq('user_id', user.id)
+        .single();
 
-        final bytes = await file.readAsBytes();
-        final path =
-            'normal_reports/${user.id}/${DateTime.now().millisecondsSinceEpoch}_${file.name}';
+    // ✅ Upload attachments
+    final uploadedUrls = <String>[];
+    for (final file in attachments) {
+      final bytes = await file.readAsBytes();
+      final path = 'normal_reports/${user.id}/${DateTime.now().millisecondsSinceEpoch}_${file.name}';
 
-        await _supabase.storage.from('videos').uploadBinary(path, bytes);
-        final publicUrl = _supabase.storage.from('videos').getPublicUrl(path);
-        uploadedUrls.add(publicUrl);
-      }
+      await _supabase.storage.from('videos').uploadBinary(path, bytes);
+      final publicUrl = _supabase.storage.from('videos').getPublicUrl(path);
+      uploadedUrls.add(publicUrl);
+    }
 
-      if (widget.reportData != null) {
-        // ✅ Update existing report
-        final reportId = widget.reportData!['id'];
+    final locationValue = selectedLocation == 'Other'
+        ? _otherLocationController.text.trim()
+        : selectedLocation;
 
-        await _supabase.from('normal_reports').update({
-          'type': selectedType,
-          'location': _locationController.text.trim(),
-          'date': selectedDate!.toIso8601String(),
-          'details': _detailsController.text.trim(),
-          'attachments': uploadedUrls.isNotEmpty
-              ? uploadedUrls
-              : widget.reportData!['attachments'],
-          'updated_at': DateTime.now().toIso8601String(), // ✅ last edit timestamp
-        }).eq('id', reportId);
+    if (widget.reportData != null) {
+      // ✅ Update existing report
+      final reportId = (widget.reportData!['id'] as num).toInt();
 
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Report updated successfully')),
-          );
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (_) => const Demopage1()),
-          );
-        }
-      } else {
-        // ✅ Insert new report
-        await _supabase.from('normal_reports').insert({
-          'user_id': user.id,
-          'student_id': student['id'],
-          'student_name': student['name'],
-          'enrollment_number': student['enrollment_no'],
-          'type': selectedType,
-          'location': _locationController.text.trim(),
-          'date': selectedDate!.toIso8601String(),        // incident date
-          'details': _detailsController.text.trim(),
-          'attachments': uploadedUrls,
-          'status': 'pending',
-          'created_at': DateTime.now().toIso8601String(), // system timestamp
-          'date_submitted': DateTime.now().toIso8601String(), // ✅ new field
-        });
+      final existingAttachments = (widget.reportData?['attachments'] as List?)?.cast<String>() ?? [];
+      final updatedAttachments = [...existingAttachments, ...uploadedUrls];
 
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Report submitted successfully')),
-          );
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (_) => const Demopage1()),
-          );
-        }
-      }
-    } catch (e) {
+      final response = await _supabase
+          .from('normal_reports')
+          .update({
+            'type': selectedType,
+            'location': locationValue,
+            'details': _detailsController.text.trim(),
+            'attachments': updatedAttachments, // ✅ merged old + new attachments
+            'updated_at': DateTime.now().toIso8601String(),
+          })
+          .eq('id', reportId)
+          .select(); // force return updated row
+
+      print("Update response: $response"); // 👀 debug
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Submit failed: $e')),
+          const SnackBar(content: Text('Report updated successfully')),
         );
+        Navigator.pop(context, true); // ✅ return flag to trigger refresh
       }
-    } finally {
-      if (mounted) setState(() => _isSubmitting = false);
+    } else {
+      // ✅ Insert new report
+      final guard = await _supabase
+          .from('guard_details')
+          .select('user_id')
+          .eq('campus_zone', selectedLocation ?? '')
+          .limit(1)
+          .maybeSingle();
+
+      final guardId = guard?['user_id'];
+
+      final response = await _supabase.from('normal_reports').insert({
+        'user_id': user.id,
+        'student_id': student['id'],
+        'student_name': student['name'],
+        'enrollment_number': student['enrollment_no'],
+        'type': selectedType,
+        'location': locationValue,
+        'campus_zone': selectedLocation,
+        'date': selectedDate!.toIso8601String(),
+        'details': _detailsController.text.trim(),
+        'attachments': uploadedUrls, // ✅ jsonb array
+        'status': 'pending',
+        'created_at': DateTime.now().toIso8601String(),
+        'date_submitted': DateTime.now().toIso8601String(),
+        'guard_id': guardId,
+      });
+
+      print("Insert response: $response"); // 👀 debug
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Report submitted successfully')),
+        );
+        Navigator.pop(context, true); // ✅ return flag to trigger refresh
+      }
     }
+  } catch (e) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Submit failed: $e')),
+      );
+    }
+  } finally {
+    if (mounted) setState(() => _isSubmitting = false);
   }
+}
 
   @override
   Widget build(BuildContext context) {
@@ -212,7 +244,6 @@ class _SubmitReportPageState extends State<SubmitReportPage> {
             key: _formKey,
             child: Column(
               children: [
-                // ✅ Status row
                 Row(
                   children: [
                     Icon(
@@ -231,7 +262,6 @@ class _SubmitReportPageState extends State<SubmitReportPage> {
                 ),
                 const SizedBox(height: 12),
 
-                // ✅ Banner if reviewed
                 if (!widget.isEditable)
                   Container(
                     width: double.infinity,
@@ -252,7 +282,6 @@ class _SubmitReportPageState extends State<SubmitReportPage> {
                     ),
                   ),
 
-                // ✅ Type dropdown
                 DropdownButtonFormField<String>(
                   value: selectedType,
                   items: types
@@ -276,11 +305,37 @@ class _SubmitReportPageState extends State<SubmitReportPage> {
                 ),
                 const SizedBox(height: 20),
 
-                // ✅ Location field
-                TextFormField(
-                  controller: _locationController,
-                  style: inputTextStyle,
-                  enabled: widget.isEditable,
+                // ✅ Location dropdown
+                DropdownButtonFormField<String>(
+                  value: selectedLocation,
+                  items: [
+                    'Academic building',
+                    'Classroom',
+                    'Laboratory',
+                    'Library',
+                    'Lecture hall',
+                    'Parking area',
+                    'Internal road',
+                    'Entry gate',
+                    'Exit gate',
+                    'Cafeteria',
+                    'Washroom',
+                    'Open ground',
+                    'Security office',
+                    'Other',
+                  ].map((zone) => DropdownMenuItem(
+                        value: zone,
+                        child: Text(zone, style: inputTextStyle),
+                      ))
+                    .toList(),
+                  onChanged: widget.isEditable
+                      ? (val) => setState(() {
+                            selectedLocation = val;
+                            if (val != 'Other') {
+                              _otherLocationController.clear();
+                            }
+                          })
+                      : null,
                   decoration: InputDecoration(
                     labelText: 'Location',
                     labelStyle: labelStyle,
@@ -288,11 +343,26 @@ class _SubmitReportPageState extends State<SubmitReportPage> {
                       borderRadius: BorderRadius.circular(20),
                     ),
                   ),
-                  validator: (v) =>
-                      v == null || v.trim().isEmpty ? 'Required' : null,
+                  validator: (val) => val == null ? 'Please select a location' : null,
                 ),
                 const SizedBox(height: 20),
 
+                // ✅ Extra textbox if "Other" is selected
+                if (selectedLocation == 'Other')
+                  TextFormField(
+                    controller: _otherLocationController,
+                    style: inputTextStyle,
+                    enabled: widget.isEditable,
+                    decoration: InputDecoration(
+                      labelText: 'Specify other location',
+                      labelStyle: labelStyle,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                    ),
+                    validator: (v) =>
+                        v == null || v.trim().isEmpty ? 'Required when Other is selected' : null,
+                  ),
                 // ✅ Date picker
                 ListTile(
                   title: Text(
@@ -366,12 +436,35 @@ class _SubmitReportPageState extends State<SubmitReportPage> {
                 ),
 
                 // ✅ Previews
-                if (attachments.isNotEmpty) ...[
-                  const SizedBox(height: 16),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: attachments.map((file) {
+                const SizedBox(height: 16),
+
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    // Show existing URLs from DB
+                    ...(widget.reportData?['attachments'] as List? ?? [])
+                        .cast<String>()
+                        .map((url) {
+                      final isImage = url.toLowerCase().endsWith('.jpg') ||
+                          url.toLowerCase().endsWith('.jpeg') ||
+                          url.toLowerCase().endsWith('.png');
+
+                      return Container(
+                        width: 100,
+                        height: 100,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.grey),
+                        ),
+                        child: isImage
+                            ? Image.network(url, fit: BoxFit.cover)
+                            : const Icon(Icons.videocam, size: 40, color: Colors.blue),
+                      );
+                    }),
+
+                    // Show newly picked files
+                    ...attachments.map((file) {
                       final isImage = file.path.toLowerCase().endsWith('.jpg') ||
                           file.path.toLowerCase().endsWith('.jpeg') ||
                           file.path.toLowerCase().endsWith('.png');
@@ -387,12 +480,8 @@ class _SubmitReportPageState extends State<SubmitReportPage> {
                               border: Border.all(color: Colors.grey),
                             ),
                             child: isImage
-                                ? Image.file(
-                                    File(file.path),
-                                    fit: BoxFit.cover,
-                                  )
-                                : const Icon(Icons.videocam,
-                                    size: 40, color: Colors.blue),
+                                ? Image.file(File(file.path), fit: BoxFit.cover)
+                                : const Icon(Icons.videocam, size: 40, color: Colors.blue),
                           ),
                           IconButton(
                             icon: const Icon(Icons.close, color: Colors.red),
@@ -404,9 +493,9 @@ class _SubmitReportPageState extends State<SubmitReportPage> {
                           ),
                         ],
                       );
-                    }).toList(),
-                  ),
-                ],
+                    }),
+                  ],
+                ),
 
                 const SizedBox(height: 28),
 

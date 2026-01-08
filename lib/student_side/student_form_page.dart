@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'custom_appbar.dart';
 import 'login_page.dart';
 import 'demo_page.dart'; // ✅ import your home screen
+import 'tutorial_pages.dart';
 
 class StudentFormPage extends StatefulWidget {
   const StudentFormPage({super.key});
@@ -73,87 +74,90 @@ class _StudentFormPageState extends State<StudentFormPage> {
     }
   }
 
-  Future<void> _submitDetails() async {
-    if (!_formKey.currentState!.validate()) return;
+Future<void> _submitDetails() async {
+  if (!_formKey.currentState!.validate()) return;
 
-    setState(() => _isSubmitting = true);
+  setState(() => _isSubmitting = true);
 
-    try {
-      final userId = _supabase.auth.currentUser?.id;
-      if (userId == null) throw Exception("User not logged in");
+  try {
+    final userId = _supabase.auth.currentUser?.id;
+    if (userId == null) throw Exception("User not logged in");
 
-      final existing = await _supabase
-          .from('student_details')
-          .select()
-          .eq('user_id', userId)
-          .limit(1);
+    final existing = await _supabase
+        .from('student_details')
+        .select()
+        .eq('user_id', userId)
+        .limit(1);
 
-      final newData = {
-        'user_id': userId,
-        'name': _nameController.text.trim(),
-        'enrollment_no': _enrollmentController.text.trim(),
-        'department': _departmentController.text.trim(),
-        'semester': _semesterController.text.trim(),
-        'contact_no': _contactController.text.trim(),
-        'address': _addressController.text.trim(),
-      };
+    final newData = {
+      'user_id': userId,
+      'name': _nameController.text.trim(),
+      'enrollment_no': _enrollmentController.text.trim(),
+      'department': _departmentController.text.trim(),
+      'semester': _semesterController.text.trim(),
+      'contact_no': _contactController.text.trim(),
+      'address': _addressController.text.trim(),
+      'seen_tutorial': false, // ✅ ensure tutorial shows after profile submission
+    };
 
-      if (existing.isNotEmpty) {
-        final oldData = existing.first as Map<String, dynamic>;
+    if (existing.isNotEmpty) {
+      final oldData = existing.first as Map<String, dynamic>;
 
-        bool changed = false;
-        for (final key in newData.keys) {
-          if (newData[key] != oldData[key]) {
-            changed = true;
-            break;
-          }
+      bool changed = false;
+      for (final key in newData.keys) {
+        if (newData[key] != oldData[key]) {
+          changed = true;
+          break;
         }
+      }
 
-        if (changed) {
-          await _supabase
-              .from('student_details')
-              .update(newData)
-              .eq('user_id', userId);
-
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Details updated successfully')),
-            );
-            Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(builder: (_) => const Demopage1()),
-            );
-          }
-        } else {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (_) => const Demopage1()),
-          );
-        }
-      } else {
-        await _supabase.from('student_details').insert(newData);
+      if (changed) {
+        await _supabase
+            .from('student_details')
+            .update(newData)
+            .eq('user_id', userId);
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Details saved successfully')),
+            const SnackBar(content: Text('Details updated successfully')),
           );
+          // ✅ Navigate to tutorial after update
           Navigator.pushReplacement(
             context,
-            MaterialPageRoute(builder: (_) => const Demopage1()),
+            MaterialPageRoute(builder: (_) => const TutorialPages()),
           );
         }
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Submit failed: $e')),
+      } else {
+        // If nothing changed, still check tutorial
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const TutorialPages()),
         );
       }
-    } finally {
-      if (mounted) setState(() => _isSubmitting = false);
-    }
-  }
+    } else {
+      await _supabase.from('student_details').insert(newData);
 
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Details saved successfully')),
+        );
+        // ✅ Navigate to tutorial after first save
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const TutorialPages()),
+        );
+      }
+    }
+  } catch (e) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Submit failed: $e')),
+      );
+    }
+  } finally {
+    if (mounted) setState(() => _isSubmitting = false);
+  }
+}
   Future<void> _logout() async {
     await _supabase.auth.signOut();
     if (mounted) {

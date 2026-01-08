@@ -92,14 +92,22 @@ Future<void> _proceed() async {
   final cameraGranted = await Permission.camera.isGranted;
   final micGranted = await Permission.microphone.isGranted;
   final overlayGranted = await Permission.systemAlertWindow.isGranted;
-
   final gpsEnabled = await Geolocator.isLocationServiceEnabled();
 
   if (locationGranted && cameraGranted && micGranted && overlayGranted && gpsEnabled) {
-  if (mounted) {
-    final profileComplete = await _isProfileComplete();
+    if (mounted) {
+      // ✅ First check profile completeness
+      final profileComplete = await _isProfileComplete();
 
-    if (profileComplete) {
+      if (!profileComplete) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const StudentFormPage()),
+        );
+        return;
+      }
+
+      // ✅ Only if profile is complete, check tutorial flag
       final supabase = Supabase.instance.client;
       final userId = supabase.auth.currentUser?.id;
 
@@ -110,28 +118,27 @@ Future<void> _proceed() async {
             .eq('user_id', userId)
             .maybeSingle();
 
-        final seenTutorial = profile?['seen_tutorial'] ?? false;
+        final raw = profile?['seen_tutorial'];
+        final bool seenTutorial = raw == true ||
+            raw == 1 ||
+            (raw is String && raw.toLowerCase() == 'true');
 
-        if (seenTutorial) {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (_) => const Demopage1()),
-          );
-        } else {
+        if (!seenTutorial) {
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(builder: (_) => const TutorialPages()),
           );
+          return;
+        } else {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const Demopage1()),
+          );
+          return;
         }
       }
-    } else {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => const StudentFormPage()),
-      );
     }
-  }
-} else {
+  } else {
     if (!locationGranted) {
       _showReasonDialog('Location is required to tag incidents.', Permission.location);
     } else if (!cameraGranted) {
