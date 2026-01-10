@@ -76,18 +76,14 @@ class _GuardReportViewerState extends State<GuardReportViewer> {
   }
 
   Future<void> _updateStatus() async {
-    print("Entered _updateStatus");
-
     if (!_formKey.currentState!.validate()) {
       print("Form validation failed");
       return;
     }
 
-    final guardUid = _supabase.auth.currentUser?.id;
-    print("Guard UID: $guardUid");
-    print("Current session: ${_supabase.auth.currentSession != null ? "authenticated" : "none"}");
-
     final reportId = widget.reportData['id'];
+    print("Debug → reportId=$reportId");
+
     if (reportId == null) {
       print("Report ID is null");
       ScaffoldMessenger.of(context).showSnackBar(
@@ -96,36 +92,56 @@ class _GuardReportViewerState extends State<GuardReportViewer> {
       return;
     }
 
+    // 1) Upload evidence (isolated try/catch)
+    List<String> urls = [];
     try {
-      // Only fields guards are allowed to update
-      final updateData = <String, dynamic>{
-        'status': selectedStatus?.trim().toLowerCase(),
-        'guard_id': guardUid,
+      if (evidenceFiles.isNotEmpty) {
+        urls = await _uploadEvidence(reportId.toString());
+        print("Evidence uploaded → $urls");
+      } else {
+        print("No evidence to upload");
+      }
+    } catch (e) {
+      print("Storage upload failed: $e");
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Evidence upload failed: $e')),
+      );
+      // return; // optional
+    }
+
+    // 2) Insert guard action + update report status
+    try {
+      final payload = {
+        'report_id': reportId,
         'remarks': _remarksController.text.trim(),
-        'updated_at': DateTime.now().toIso8601String(),
+        'evidence_urls': urls,   // List<String> → Postgres text[]
+        'status': selectedStatus,
       };
 
-      print("Final UpdateData: $updateData");
+      print("DB payload → $payload");
 
       final response = await _supabase
-          .from(widget.source == 'sos' ? 'sos_reports' : 'normal_reports')
-          .update(updateData)
-          .eq('id', reportId)
-          .select(); // return updated row for debugging
+          .from('guard_actions')
+          .insert(payload)
+          .select();
 
-      print("Update response: $response");
+      print("Insert response: $response");
+
+      // 🔄 Update the report’s status in normal_reports or sos_reports
+      await _supabase
+          .from(widget.source == 'sos' ? 'sos_reports' : 'normal_reports')
+          .update({'status': selectedStatus})
+          .eq('id', reportId);
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Remark submitted')),
       );
 
-      if (mounted) {
-        Navigator.pop(context);
-      }
+      if (mounted) Navigator.pop(context);
     } catch (e) {
-      print("Update failed: $e");
+      print("DB insert/update failed: $e");
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to update status: $e')),
+        SnackBar(content: Text('Failed to submit action: $e')),
       );
     }
   }

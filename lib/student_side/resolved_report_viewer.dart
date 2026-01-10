@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
+import 'package:intl/intl.dart';
 import 'custom_appbar.dart';
 
 class ResolvedReportViewer extends StatefulWidget {
@@ -12,6 +13,16 @@ class ResolvedReportViewer extends StatefulWidget {
 }
 
 class _ResolvedReportViewerState extends State<ResolvedReportViewer> {
+  String _formatDate(String? isoString) {
+    if (isoString == null || isoString.isEmpty) return '—';
+    try {
+      final dt = DateTime.parse(isoString).toLocal();
+      return DateFormat('dd MMM yyyy').format(dt);
+    } catch (_) {
+      return isoString;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     const labelStyle = TextStyle(
@@ -29,7 +40,12 @@ class _ResolvedReportViewerState extends State<ResolvedReportViewer> {
     );
 
     final status = widget.reportData['status'] ?? 'pending';
-    final attachments = (widget.reportData['attachments'] as List<dynamic>?) ?? [];
+    final studentAttachments =
+        (widget.reportData['attachments'] as List<dynamic>?) ?? [];
+
+    // ✅ Guard actions come from guard_actions table
+    final guardActions =
+        (widget.reportData['guard_actions'] as List<dynamic>?) ?? [];
 
     return Scaffold(
       appBar: const CustomAppBar(),
@@ -43,12 +59,15 @@ class _ResolvedReportViewerState extends State<ResolvedReportViewer> {
               Row(
                 children: [
                   Icon(
-                    status == 'resolved' ? Icons.check_circle : Icons.access_time,
+                    status == 'resolved'
+                        ? Icons.check_circle
+                        : Icons.access_time,
                     color: status == 'resolved' ? Colors.green : Colors.red,
                   ),
                   const SizedBox(width: 8),
                   Text("Status: $status",
-                      style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                      style: const TextStyle(
+                          fontSize: 20, fontWeight: FontWeight.bold)),
                 ],
               ),
               const SizedBox(height: 12),
@@ -74,39 +93,75 @@ class _ResolvedReportViewerState extends State<ResolvedReportViewer> {
               ),
 
               // Read-only fields
-              _buildReadOnlyField('Type', widget.reportData['type'], labelStyle, valueStyle),
+              _buildReadOnlyField(
+                  'Type', widget.reportData['type'], labelStyle, valueStyle),
               const SizedBox(height: 20),
-              _buildReadOnlyField('Location', widget.reportData['location'], labelStyle, valueStyle),
+              _buildReadOnlyField('Location', widget.reportData['location'],
+                  labelStyle, valueStyle),
               const SizedBox(height: 20),
               _buildReadOnlyField(
                 'Date',
-                (widget.reportData['date'] ??
-                        widget.reportData['date_submitted'] ??
-                        widget.reportData['created_at'])
-                    ?.toString(),
+                _formatDate(widget.reportData['date'] ??
+                    widget.reportData['date_submitted'] ??
+                    widget.reportData['created_at']),
                 labelStyle,
                 valueStyle,
               ),
               const SizedBox(height: 20),
-              _buildReadOnlyField('Details of Incident', widget.reportData['details'], labelStyle, valueStyle),
+              _buildReadOnlyField('Details of Incident',
+                  widget.reportData['details'], labelStyle, valueStyle),
               const SizedBox(height: 20),
 
-              const Text('Attachments:', style: labelStyle),
+              const Text('Student Attachments:', style: labelStyle),
               const SizedBox(height: 8),
-              _buildAttachmentPreviews(attachments),
+              _buildAttachmentPreviews(studentAttachments),
 
               const SizedBox(height: 28),
               const Divider(),
               const SizedBox(height: 12),
 
-              const Text('Remarks:', style: labelStyle),
+              // ✅ Show all guard actions
+              const Text('Guard Actions:', style: labelStyle),
               const SizedBox(height: 8),
-              Text(widget.reportData['remarks'] ?? 'No remarks', style: valueStyle),
-              const SizedBox(height: 20),
+              guardActions.isEmpty
+                  ? const Text('No guard actions yet',
+                      style: TextStyle(fontSize: 16))
+                  : Column(
+                      children: guardActions.map((action) {
+                        final remarks = action['remarks'] ?? 'No remarks';
+                        final evidence =
+                            (action['evidence_urls'] as List<dynamic>?) ?? [];
+                        final actionStatus =
+                            action['status'] ?? 'no status';
+                        final createdAt =
+                            _formatDate(action['created_at']?.toString());
 
-              const Text('Evidence:', style: labelStyle),
-              const SizedBox(height: 8),
-              _buildAttachmentPreviews(attachments),
+                        return Container(
+                          margin: const EdgeInsets.only(bottom: 16),
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade100,
+                            border: Border.all(color: Colors.grey.shade300),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text("Status: $actionStatus",
+                                  style: valueStyle),
+                              const SizedBox(height: 8),
+                              Text("Remarks: $remarks", style: valueStyle),
+                              const SizedBox(height: 8),
+                              Text("Date: $createdAt", style: valueStyle),
+                              const SizedBox(height: 12),
+                              const Text('Evidence:', style: labelStyle),
+                              const SizedBox(height: 8),
+                              _buildAttachmentPreviews(evidence),
+                            ],
+                          ),
+                        );
+                      }).toList(),
+                    ),
             ],
           ),
         ),
@@ -114,7 +169,8 @@ class _ResolvedReportViewerState extends State<ResolvedReportViewer> {
     );
   }
 
-  Widget _buildReadOnlyField(String label, String? value, TextStyle labelStyle, TextStyle valueStyle) {
+  Widget _buildReadOnlyField(
+      String label, String? value, TextStyle labelStyle, TextStyle valueStyle) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -138,17 +194,20 @@ class _ResolvedReportViewerState extends State<ResolvedReportViewer> {
 
         // Decide preview based on file type
         Widget preview;
-        if (url.endsWith('.jpg') || url.endsWith('.png')) {
+        if (url.toLowerCase().endsWith('.jpg') ||
+            url.toLowerCase().endsWith('.png')) {
           preview = Image.network(url, fit: BoxFit.cover);
-        } else if (url.endsWith('.mp4')) {
+        } else if (url.toLowerCase().endsWith('.mp4')) {
           preview = const Icon(Icons.videocam, size: 40, color: Colors.blue);
         } else {
-          preview = const Icon(Icons.insert_drive_file, size: 40, color: Colors.grey);
+          preview =
+              const Icon(Icons.insert_drive_file, size: 40, color: Colors.grey);
         }
 
         return InkWell(
           onTap: () {
-            if (url.endsWith('.jpg') || url.endsWith('.png')) {
+            if (url.toLowerCase().endsWith('.jpg') ||
+                url.toLowerCase().endsWith('.png')) {
               // Show image in dialog
               showDialog(
                 context: context,
@@ -158,7 +217,7 @@ class _ResolvedReportViewerState extends State<ResolvedReportViewer> {
                   ),
                 ),
               );
-            } else if (url.endsWith('.mp4')) {
+            } else if (url.toLowerCase().endsWith('.mp4')) {
               // Navigate to video player page
               Navigator.push(
                 context,
@@ -231,9 +290,11 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
       floatingActionButton: FloatingActionButton(
         onPressed: () {
           setState(() {
-            _controller.value.isPlaying
-                ? _controller.pause()
-                : _controller.play();
+            if (_controller.value.isPlaying) {
+              _controller.pause();
+            } else {
+              _controller.play();
+            }
           });
         },
         child: Icon(
