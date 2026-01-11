@@ -4,21 +4,133 @@ import 'package:demo_app/student_side/login_page.dart';
 import 'package:demo_app/student_side/tutorial_pages.dart';
 import 'package:demo_app/guard_side/main_page.dart';
 import 'package:demo_app/guard_side/tutorial_pages.dart';
+import 'package:demo_app/guard_side/guard_report_viewer.dart'; // deep-link navigation
+import 'package:demo_app/guard_side/sos_report_viewer.dart';   // notifications
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'soshandler.dart';
 
+// Firebase
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+
+// Local notifications
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
+    FlutterLocalNotificationsPlugin();
+
+/// Background handler for FCM
+Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  await Firebase.initializeApp();
+  _showNotification(message);
+}
+
+/// Show local notification
+void _showNotification(RemoteMessage message) async {
+  const AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
+    'sos_channel',
+    'SOS Alerts',
+    importance: Importance.max,
+    priority: Priority.high,
+    ticker: 'ticker',
+  );
+
+  const NotificationDetails platformDetails =
+      NotificationDetails(android: androidDetails);
+
+  await flutterLocalNotificationsPlugin.show(
+    0,
+    message.notification?.title ?? '🚨 New SOS Alert',
+    message.notification?.body ?? 'Student needs help!',
+    platformDetails,
+    payload: message.data['sosId'], // pass sosId for navigation
+  );
+}
+
+/// Background tap handler
+@pragma('vm:entry-point')
+void notificationTapBackground(NotificationResponse response) {
+  final payload = response.payload;
+  if (payload != null && payload.isNotEmpty) {
+    debugPrint('Background notification tapped with payload: $payload');
+    // You can add navigation logic here if needed
+  }
+}
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  // ✅ Initialize Firebase
+  await Firebase.initializeApp();
+
+  // ✅ Request notification permissions
+  final settings = await FirebaseMessaging.instance.requestPermission(
+    alert: true,
+    badge: true,
+    sound: true,
+  );
+  print('Notification permission status: ${settings.authorizationStatus}');
+
+  // ✅ Initialize Supabase
   await Supabase.initialize(
     url: 'https://pvqkkfmzdjquqjxabzur.supabase.co',
     anonKey:
         'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB2cWtrZm16ZGpxdXFqeGFienVyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjYzOTQ0MzEsImV4cCI6MjA4MTk3MDQzMX0.V9V2SXbDt9mwWOQTaa_D_RW5puBxMVwtmhIqFG0ekvw',
   );
 
+  // ✅ Initialize native SOS handler
   SOSHandler.init(navigatorKey);
+
+  // ✅ Configure local notifications
+  const AndroidInitializationSettings initSettingsAndroid =
+      AndroidInitializationSettings('@mipmap/ic_launcher');
+
+  const InitializationSettings initSettings =
+      InitializationSettings(android: initSettingsAndroid);
+
+  await flutterLocalNotificationsPlugin.initialize(
+    initSettings,
+    onDidReceiveNotificationResponse: (NotificationResponse response) async {
+      final payload = response.payload;
+      if (payload != null && payload.isNotEmpty) {
+        navigatorKey.currentState?.push(
+          MaterialPageRoute(
+            builder: (_) => SosReportViewer(sosId: payload),
+          ),
+        );
+      }
+    },
+    onDidReceiveBackgroundNotificationResponse: notificationTapBackground,
+  );
+
+  // ✅ Register background handler
+  FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+
+  // ✅ Foreground notifications
+  FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+    debugPrint("📡 Foreground notification received: ${message.notification?.title}");
+    _showNotification(message);
+  });
+
+  // ✅ Handle notification taps when app is in background
+  FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
+    final sosId = message.data['sosId'];
+    debugPrint("📲 Background notification tapped: $sosId");
+    navigatorKey.currentState?.push(
+      MaterialPageRoute(builder: (_) => SosReportViewer(sosId: sosId)),
+    );
+  });
+
+  // ✅ Handle notification when app is opened from terminated state
+  final initialMessage = await FirebaseMessaging.instance.getInitialMessage();
+  if (initialMessage != null) {
+    final sosId = initialMessage.data['sosId'];
+    debugPrint("🛑 App opened from terminated state via notification: $sosId");
+    navigatorKey.currentState?.push(
+      MaterialPageRoute(builder: (_) => SosReportViewer(sosId: sosId)),
+    );
+  }
 
   runApp(MyApp(navigatorKey: navigatorKey));
 }
@@ -33,6 +145,27 @@ class MyApp extends StatelessWidget {
 
     final userId = Supabase.instance.client.auth.currentUser?.id;
     if (userId == null) return const LoginPage();
+
+    // ✅ Capture FCM token and update guard_details
+    final token = await FirebaseMessaging.instance.getToken();
+    if (token != null) {
+      // 🔎 Debug print to verify token
+      print('FCM token for this device: $token');
+
+      await Supabase.instance.client
+          .from('guard_details')
+          .update({'fcm_token': token})
+          .eq('user_id', userId);
+    }
+
+    // ✅ Listen for token refresh
+    FirebaseMessaging.instance.onTokenRefresh.listen((newToken) async {
+      print('FCM token refreshed: $newToken');
+      await Supabase.instance.client
+          .from('guard_details')
+          .update({'fcm_token': newToken})
+          .eq('user_id', userId);
+    });
 
     // ✅ Check if user exists in student_details
     final studentProfile = await Supabase.instance.client

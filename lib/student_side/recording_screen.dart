@@ -2,9 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'dart:async';
 import 'dart:io';
+import 'dart:math'; // ✅ for Haversine formula
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:permission_handler/permission_handler.dart'; // ✅ new import
+import 'package:permission_handler/permission_handler.dart';
 
 class RecordingScreen extends StatefulWidget {
   const RecordingScreen({super.key});
@@ -23,7 +24,6 @@ class _RecordingScreenState extends State<RecordingScreen> {
     _requestPermissionsAndStart();
   }
 
-  /// ✅ Request camera, microphone, and location permissions before starting SOS
   Future<void> _requestPermissionsAndStart() async {
     final cameraStatus = await Permission.camera.request();
     final micStatus = await Permission.microphone.request();
@@ -53,7 +53,6 @@ class _RecordingScreenState extends State<RecordingScreen> {
 
       if (mounted) setState(() {});
 
-      // ✅ Start SOS flow immediately
       _startSOS();
     } catch (e) {
       if (mounted) {
@@ -67,18 +66,17 @@ class _RecordingScreenState extends State<RecordingScreen> {
 
   Future<void> _startSOS() async {
     try {
-      // ✅ Get current location
       Position position = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
       );
-      final location = '${position.latitude}, ${position.longitude}';
+      final lat = position.latitude;
+      final lng = position.longitude;
+      final location = '$lat, $lng';
 
-      // ✅ Start recording
       if (_controller == null || _isRecording) return;
       await _controller!.startVideoRecording();
       setState(() => _isRecording = true);
 
-      // Stop after 10 seconds
       Future.delayed(const Duration(seconds: 10), () async {
         if (!_isRecording || _controller == null) return;
 
@@ -92,13 +90,10 @@ class _RecordingScreenState extends State<RecordingScreen> {
 
           final fileBytes = await File(file.path).readAsBytes();
 
-          // ✅ Upload video to Supabase Storage
           await supabase.storage.from('videos').uploadBinary(fileName, fileBytes);
-
           final publicUrl =
               supabase.storage.from('videos').getPublicUrl(fileName);
 
-          // ✅ Fetch student name from profile table
           final userId = supabase.auth.currentUser?.id;
           String studentName = 'Unknown';
           if (userId != null) {
@@ -113,14 +108,22 @@ class _RecordingScreenState extends State<RecordingScreen> {
             }
           }
 
-          // ✅ Insert metadata into sos_reports table
-          await supabase.from('sos_reports').insert({
+          // ✅ Insert SOS report (no zone)
+          final inserted = await supabase.from('sos_reports').insert({
             'user_id': userId,
             'student_name': studentName,
             'location': location,
+            'lat': lat,
+            'lng': lng,
             'video_url': publicUrl,
+            'status': 'pending',
             'created_at': DateTime.now().toIso8601String(),
-          });
+          }).select().single();
+
+          final sosId = inserted['id'].toString();
+
+          // ✅ Assign nearest guard automatically
+          await _assignNearestGuard(sosId, lat, lng);
 
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
@@ -144,6 +147,65 @@ class _RecordingScreenState extends State<RecordingScreen> {
       }
     }
   }
+
+  Future<void> _assignNearestGuard(String sosId, double sosLat, double sosLng) async {
+  final supabase = Supabase.instance.client;
+
+  // ✅ Fetch available guards as a List
+  final guards = await supabase
+      .from('guard_details')
+      .select('user_id, last_lat, last_lng')
+      .eq('availability', true) as List;
+
+  if (guards.isEmpty) {
+    debugPrint("No available guards found");
+    return;
+  }
+
+  // ✅ Haversine formula to calculate distance
+  double haversine(double lat1, double lon1, double lat2, double lon2) {
+    const R = 6371000; // meters
+    final dLat = (lat2 - lat1) * (pi / 180);
+    final dLon = (lon2 - lon1) * (pi / 180);
+    final a = sin(dLat / 2) * sin(dLat / 2) +
+        cos(lat1 * pi / 180) * cos(lat2 * pi / 180) *
+        sin(dLon / 2) * sin(dLon / 2);
+    final c = 2 * atan2(sqrt(a), sqrt(1 - a));
+    return R * c;
+  }
+
+  // ✅ Sort guards by distance to SOS location
+  guards.sort((a, b) {
+    final da = haversine(sosLat, sosLng, a['last_lat'], a['last_lng']);
+    final db = haversine(sosLat, sosLng, b['last_lat'], b['last_lng']);
+    return da.compareTo(db);
+  });
+
+  final nearestGuard = guards.first;
+
+  // ✅ Update sos_reports with assigned guard
+  await supabase
+      .from('sos_reports')
+      .update({'assigned_guard_id': nearestGuard['user_id']})
+      .eq('id', sosId);
+
+  debugPrint("Assigned guard ${nearestGuard['user_id']} to SOS $sosId");
+
+  // ✅ Trigger Edge Function to send FCM notification
+  try {
+    final response = await supabase.functions.invoke(
+      'send-sos', // replace with your Edge Function name
+      body: {
+        'sosId': sosId,
+        'guardId': nearestGuard['user_id'],
+      },
+    );
+
+    debugPrint("✅ SOS notification triggered: ${response.data}");
+  } catch (error) {
+    debugPrint("❌ Failed to trigger SOS notification: $error");
+  }
+}
 
   @override
   void dispose() {

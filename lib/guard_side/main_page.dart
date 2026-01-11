@@ -3,6 +3,9 @@ import 'package:demo_app/guard_side/custom_appbar.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'guard_report_viewer.dart';
 import 'package:intl/intl.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:demo_app/services/notification_handler.dart'; // ✅ centralized notifications
+import 'package:firebase_messaging/firebase_messaging.dart'; // ✅ add this import
 
 class GuardMainPage extends StatefulWidget {
   const GuardMainPage({super.key});
@@ -17,13 +20,14 @@ class _GuardMainPageState extends State<GuardMainPage> {
   bool _isLoading = true;
   bool _isAvailable = true;
   String _guardName = '';
+
   String _formatDateOnly(String? isoString) {
     if (isoString == null || isoString.isEmpty) return '';
     try {
       final dt = DateTime.parse(isoString);
       return DateFormat('dd MMM yyyy').format(dt.toLocal());
     } catch (_) {
-      return isoString; // fallback if parsing fails
+      return isoString;
     }
   }
 
@@ -34,6 +38,41 @@ class _GuardMainPageState extends State<GuardMainPage> {
   void initState() {
     super.initState();
     _loadInitial();
+    _updateGuardLocation();
+    _subscribeToSOS();
+    _loadPendingSOS();
+    _registerFcmToken(); // ✅ NEW: ensure guard’s token is saved
+  }
+
+  // ✅ NEW: Capture and persist FCM token for this guard
+  Future<void> _registerFcmToken() async {
+    final userId = _supabase.auth.currentUser?.id;
+    if (userId == null) {
+      debugPrint("No guard ID found for FCM registration");
+      return;
+    }
+
+    try {
+      final token = await FirebaseMessaging.instance.getToken();
+      if (token != null) {
+        await _supabase
+            .from('guard_details')
+            .update({'fcm_token': token})
+            .eq('user_id', userId);
+        debugPrint("FCM token registered for guard $userId");
+      }
+
+      // Keep DB in sync if token refreshes
+      FirebaseMessaging.instance.onTokenRefresh.listen((newToken) async {
+        await _supabase
+            .from('guard_details')
+            .update({'fcm_token': newToken})
+            .eq('user_id', userId);
+        debugPrint("FCM token refreshed for guard $userId");
+      });
+    } catch (e) {
+      debugPrint("Error registering FCM token: $e");
+    }
   }
 
   Future<void> _loadInitial() async {
@@ -44,7 +83,6 @@ class _GuardMainPageState extends State<GuardMainPage> {
     }
 
     try {
-      // Load guard profile
       final profile = await _supabase
           .from('guard_details')
           .select('name, availability, campus_zone')
@@ -55,11 +93,10 @@ class _GuardMainPageState extends State<GuardMainPage> {
       _isAvailable = (profile?['availability'] as bool?) ?? true;
       final zone = (profile?['campus_zone'] as String?)?.trim();
 
-      // 🔥 Step 1: Just fetch reports assigned to this guard
       final normal = await _supabase
           .from('normal_reports')
           .select()
-          .eq('guard_id', user.id) // only reports assigned to this guard
+          .eq('guard_id', user.id)
           .order('date_submitted', ascending: false);
 
       final normalList = List<Map<String, dynamic>>.from(normal);
@@ -74,13 +111,64 @@ class _GuardMainPageState extends State<GuardMainPage> {
           .toList();
 
       _handledReports = normalList
-          .where((r) =>
-              (r['status']?.toString().toLowerCase().trim() ?? '') == 'resolved')
+          .where((r) => (r['status']?.toString().toLowerCase().trim() ?? '') == 'resolved')
           .toList();
     } catch (e) {
       debugPrint('Error loading guard main page: $e');
     } finally {
       if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _loadPendingSOS() async {
+    final guardId = _supabase.auth.currentUser?.id;
+    if (guardId == null) {
+      debugPrint("No guard ID found for pending SOS check");
+      return;
+    }
+
+    try {
+      final sosList = await _supabase
+          .from('sos_reports')
+          .select()
+          .eq('assigned_guard_id', guardId)
+          .eq('status', 'pending');
+
+      debugPrint("Pending SOS reports fetched: $sosList");
+
+      for (final sos in sosList) {
+        NotificationHandler.showNotification(
+          "🚨 Missed SOS Alert",
+          "Student ${sos['student_name']} still needs help!",
+          sos['id'].toString(),
+        );
+      }
+    } catch (e) {
+      debugPrint("Error fetching pending SOS: $e");
+    }
+  }
+
+  Future<void> _updateGuardLocation() async {
+    try {
+      final user = _supabase.auth.currentUser;
+      if (user == null) return;
+
+      Position position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+
+      await _supabase
+          .from('guard_details')
+          .update({
+            'last_lat': position.latitude,
+            'last_lng': position.longitude,
+            'last_updated': DateTime.now().toIso8601String(),
+          })
+          .eq('user_id', user.id);
+
+      debugPrint("Guard location updated automatically");
+    } catch (e) {
+      debugPrint("Failed to update guard location: $e");
     }
   }
 
@@ -101,7 +189,7 @@ class _GuardMainPageState extends State<GuardMainPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Failed to update availability: $e')),
       );
-      setState(() => _isAvailable = !value); // revert on failure
+      setState(() => _isAvailable = !value);
     }
   }
 
@@ -112,10 +200,51 @@ class _GuardMainPageState extends State<GuardMainPage> {
         builder: (_) => GuardReportViewer(reportData: reportData),
       ),
     ).then((_) {
-      _loadInitial(); // refresh after returning
+      _loadInitial();
     });
   }
 
+  void _subscribeToSOS() {
+    final guardId = _supabase.auth.currentUser?.id;
+    if (guardId == null) {
+      debugPrint("No guard ID found, realtime subscription not started");
+      return;
+    }
+
+    final channel = _supabase.channel('sos_reports_channel');
+
+    channel.onPostgresChanges(
+      event: PostgresChangeEvent.insert,
+      schema: 'public',
+      table: 'sos_reports',
+      filter: PostgresChangeFilter(
+        type: PostgresChangeFilterType.eq,
+        column: 'assigned_guard_id',
+        value: guardId,
+      ),
+      callback: (PostgresChangePayload payload) {
+        debugPrint("Realtime payload received: ${payload.newRecord}");
+
+        final sos = payload.newRecord;
+        if (sos != null) {
+          final sosId = sos['id']?.toString() ?? '';
+          final studentName = sos['student_name'] ?? 'Unknown';
+
+          NotificationHandler.showNotification(
+            "🚨 New SOS Alert",
+            "Student $studentName needs help!",
+            sosId,
+          );
+        } else {
+          debugPrint("Realtime event received but sos record was null");
+        }
+      },
+    );
+
+    channel.subscribe();
+    debugPrint("Subscribed to sos_reports realtime for guard $guardId");
+  }
+  
   Widget _buildReportCard(Map<String, dynamic> report, bool isHandled) {
     final type = (report['type'] ?? '').toString();
     final submittedRaw = (report['date_submitted'] ?? report['created_at'] ?? '').toString();
