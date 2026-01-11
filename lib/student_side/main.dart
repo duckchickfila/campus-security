@@ -20,17 +20,20 @@ final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
     FlutterLocalNotificationsPlugin();
 
-/// Background handler for FCM
-Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  await Firebase.initializeApp();
-  _showNotification(message);
-}
+/// Define Android notification channel
+const AndroidNotificationChannel sosChannel = AndroidNotificationChannel(
+  'sos_channel',
+  'SOS Alerts',
+  description: 'High priority SOS notifications for guards',
+  importance: Importance.max,
+);
 
 /// Show local notification
 void _showNotification(RemoteMessage message) async {
   const AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
     'sos_channel',
     'SOS Alerts',
+    channelDescription: 'High priority SOS notifications for guards',
     importance: Importance.max,
     priority: Priority.high,
     ticker: 'ticker',
@@ -53,9 +56,18 @@ void _showNotification(RemoteMessage message) async {
 void notificationTapBackground(NotificationResponse response) {
   final payload = response.payload;
   if (payload != null && payload.isNotEmpty) {
-    debugPrint('Background notification tapped with payload: $payload');
-    // You can add navigation logic here if needed
+    debugPrint('📲 Background notification tapped with payload: $payload');
+    // Optional: add navigation logic here
   }
+}
+
+/// Background handler for FCM
+@pragma('vm:entry-point')
+Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  await Firebase.initializeApp();
+  debugPrint("📡 Background handler fired");
+  debugPrint("🔎 Full message payload (background isolate): ${message.toMap()}");
+  _showNotification(message);
 }
 
 Future<void> main() async {
@@ -63,6 +75,9 @@ Future<void> main() async {
 
   // ✅ Initialize Firebase
   await Firebase.initializeApp();
+
+  // ✅ Register background handler (must be after Firebase.initializeApp)
+  FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
   // ✅ Request notification permissions
   final settings = await FirebaseMessaging.instance.requestPermission(
@@ -104,19 +119,24 @@ Future<void> main() async {
     onDidReceiveBackgroundNotificationResponse: notificationTapBackground,
   );
 
-  // ✅ Register background handler
-  FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+  // ✅ Create Android notification channel (Android 8+)
+  await flutterLocalNotificationsPlugin
+      .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin>()
+      ?.createNotificationChannel(sosChannel);
 
   // ✅ Foreground notifications
   FirebaseMessaging.onMessage.listen((RemoteMessage message) {
-    debugPrint("📡 Foreground notification received: ${message.notification?.title}");
+    debugPrint("📡 Foreground notification received");
+    debugPrint("🔎 Full message payload (foreground): ${message.toMap()}");
     _showNotification(message);
   });
 
   // ✅ Handle notification taps when app is in background
   FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
+    debugPrint("📲 Background notification tapped");
+    debugPrint("🔎 Full message payload (background): ${message.toMap()}");
     final sosId = message.data['sosId'];
-    debugPrint("📲 Background notification tapped: $sosId");
     navigatorKey.currentState?.push(
       MaterialPageRoute(builder: (_) => SosReportViewer(sosId: sosId)),
     );
@@ -125,8 +145,9 @@ Future<void> main() async {
   // ✅ Handle notification when app is opened from terminated state
   final initialMessage = await FirebaseMessaging.instance.getInitialMessage();
   if (initialMessage != null) {
+    debugPrint("🛑 App opened from terminated state via notification");
+    debugPrint("🔎 Full message payload (terminated): ${initialMessage.toMap()}");
     final sosId = initialMessage.data['sosId'];
-    debugPrint("🛑 App opened from terminated state via notification: $sosId");
     navigatorKey.currentState?.push(
       MaterialPageRoute(builder: (_) => SosReportViewer(sosId: sosId)),
     );
@@ -149,9 +170,7 @@ class MyApp extends StatelessWidget {
     // ✅ Capture FCM token and update guard_details
     final token = await FirebaseMessaging.instance.getToken();
     if (token != null) {
-      // 🔎 Debug print to verify token
       print('FCM token for this device: $token');
-
       await Supabase.instance.client
           .from('guard_details')
           .update({'fcm_token': token})

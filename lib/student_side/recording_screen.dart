@@ -7,6 +7,9 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import 'demo_page.dart'; // for navigation back to Demopage1
+import 'sos_confirmation_screen.dart'; // new confirmation screen
+
 class RecordingScreen extends StatefulWidget {
   const RecordingScreen({super.key});
 
@@ -96,22 +99,29 @@ class _RecordingScreenState extends State<RecordingScreen> {
 
           final userId = supabase.auth.currentUser?.id;
           String studentName = 'Unknown';
+          String enrollmentNumber = 'Unknown';
+          String contactNumber = 'Unknown';
+
           if (userId != null) {
             final profile = await supabase
                 .from('student_details')
-                .select('name')
+                .select('name, enrollment_no, contact_no')
                 .eq('user_id', userId)
                 .limit(1);
 
             if (profile.isNotEmpty) {
               studentName = profile.first['name'] ?? 'Unknown';
+              enrollmentNumber = profile.first['enrollment_no'] ?? 'Unknown';
+              contactNumber = profile.first['contact_no'] ?? 'Unknown';
             }
           }
 
-          // ✅ Insert SOS report (no zone)
+          // ✅ Insert SOS report with correct mapping
           final inserted = await supabase.from('sos_reports').insert({
             'user_id': userId,
             'student_name': studentName,
+            'enrollment_number': enrollmentNumber,
+            'contact_number': contactNumber,
             'location': location,
             'lat': lat,
             'lng': lng,
@@ -123,13 +133,18 @@ class _RecordingScreenState extends State<RecordingScreen> {
           final sosId = inserted['id'].toString();
 
           // ✅ Assign nearest guard automatically
-          await _assignNearestGuard(sosId, lat, lng);
+          final guardId = await _assignNearestGuard(sosId, lat, lng);
 
           if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('SOS report uploaded successfully')),
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(
+                builder: (_) => SosConfirmationScreen(
+                  sosId: sosId,
+                  guardId: guardId ?? 'Unknown',
+                ),
+              ),
             );
-            Navigator.pop(context);
           }
         } catch (e) {
           if (mounted) {
@@ -148,64 +163,60 @@ class _RecordingScreenState extends State<RecordingScreen> {
     }
   }
 
-  Future<void> _assignNearestGuard(String sosId, double sosLat, double sosLng) async {
-  final supabase = Supabase.instance.client;
+  Future<String?> _assignNearestGuard(String sosId, double sosLat, double sosLng) async {
+    final supabase = Supabase.instance.client;
 
-  // ✅ Fetch available guards as a List
-  final guards = await supabase
-      .from('guard_details')
-      .select('user_id, last_lat, last_lng')
-      .eq('availability', true) as List;
+    final guards = await supabase
+        .from('guard_details')
+        .select('user_id, last_lat, last_lng')
+        .eq('availability', true) as List;
 
-  if (guards.isEmpty) {
-    debugPrint("No available guards found");
-    return;
+    if (guards.isEmpty) {
+      debugPrint("No available guards found");
+      return null;
+    }
+
+    double haversine(double lat1, double lon1, double lat2, double lon2) {
+      const R = 6371000; // meters
+      final dLat = (lat2 - lat1) * (pi / 180);
+      final dLon = (lon2 - lon1) * (pi / 180);
+      final a = sin(dLat / 2) * sin(dLat / 2) +
+          cos(lat1 * pi / 180) * cos(lat2 * pi / 180) *
+          sin(dLon / 2) * sin(dLon / 2);
+      final c = 2 * atan2(sqrt(a), sqrt(1 - a));
+      return R * c;
+    }
+
+    guards.sort((a, b) {
+      final da = haversine(sosLat, sosLng, a['last_lat'], a['last_lng']);
+      final db = haversine(sosLat, sosLng, b['last_lat'], b['last_lng']);
+      return da.compareTo(db);
+    });
+
+    final nearestGuard = guards.first;
+
+    await supabase
+        .from('sos_reports')
+        .update({'assigned_guard_id': nearestGuard['user_id']})
+        .eq('id', sosId);
+
+    debugPrint("Assigned guard ${nearestGuard['user_id']} to SOS $sosId");
+
+    try {
+      final response = await supabase.functions.invoke(
+        'send-sos',
+        body: {
+          'sosId': sosId,
+          'guardId': nearestGuard['user_id'],
+        },
+      );
+      debugPrint("✅ SOS notification triggered: ${response.data}");
+    } catch (error) {
+      debugPrint("❌ Failed to trigger SOS notification: $error");
+    }
+
+    return nearestGuard['user_id'];
   }
-
-  // ✅ Haversine formula to calculate distance
-  double haversine(double lat1, double lon1, double lat2, double lon2) {
-    const R = 6371000; // meters
-    final dLat = (lat2 - lat1) * (pi / 180);
-    final dLon = (lon2 - lon1) * (pi / 180);
-    final a = sin(dLat / 2) * sin(dLat / 2) +
-        cos(lat1 * pi / 180) * cos(lat2 * pi / 180) *
-        sin(dLon / 2) * sin(dLon / 2);
-    final c = 2 * atan2(sqrt(a), sqrt(1 - a));
-    return R * c;
-  }
-
-  // ✅ Sort guards by distance to SOS location
-  guards.sort((a, b) {
-    final da = haversine(sosLat, sosLng, a['last_lat'], a['last_lng']);
-    final db = haversine(sosLat, sosLng, b['last_lat'], b['last_lng']);
-    return da.compareTo(db);
-  });
-
-  final nearestGuard = guards.first;
-
-  // ✅ Update sos_reports with assigned guard
-  await supabase
-      .from('sos_reports')
-      .update({'assigned_guard_id': nearestGuard['user_id']})
-      .eq('id', sosId);
-
-  debugPrint("Assigned guard ${nearestGuard['user_id']} to SOS $sosId");
-
-  // ✅ Trigger Edge Function to send FCM notification
-  try {
-    final response = await supabase.functions.invoke(
-      'send-sos', // replace with your Edge Function name
-      body: {
-        'sosId': sosId,
-        'guardId': nearestGuard['user_id'],
-      },
-    );
-
-    debugPrint("✅ SOS notification triggered: ${response.data}");
-  } catch (error) {
-    debugPrint("❌ Failed to trigger SOS notification: $error");
-  }
-}
 
   @override
   void dispose() {
