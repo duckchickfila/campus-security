@@ -22,17 +22,35 @@ class _SosConfirmationScreenState extends State<SosConfirmationScreen> {
   String? guardLocation;
   double? guardLat;
   double? guardLng;
+
+  double? studentLat; // ✅ new
+  double? studentLng; // ✅ new
+
   bool loading = true;
 
   @override
   void initState() {
     super.initState();
-    _fetchGuardDetails();
+    _fetchDetails();
   }
 
-  Future<void> _fetchGuardDetails() async {
+  Future<void> _fetchDetails() async {
     try {
       final supabase = Supabase.instance.client;
+
+      // ✅ Fetch SOS row for student coordinates
+      final sosRow = await supabase
+          .from('sos_reports')
+          .select('lat, lng')
+          .eq('id', widget.sosId)
+          .maybeSingle();
+
+      if (sosRow != null) {
+        studentLat = (sosRow['lat'] as num).toDouble();
+        studentLng = (sosRow['lng'] as num).toDouble();
+      }
+
+      // ✅ Fetch guard details
       final response = await supabase
           .from('guard_details')
           .select('name, last_lat, last_lng')
@@ -41,15 +59,15 @@ class _SosConfirmationScreenState extends State<SosConfirmationScreen> {
 
       if (response != null) {
         guardName = response['name'] ?? 'Unknown';
-        guardLat = response['last_lat'];
-        guardLng = response['last_lng'];
+        guardLat = (response['last_lat'] as num?)?.toDouble();
+        guardLng = (response['last_lng'] as num?)?.toDouble();
 
         if (guardLat != null && guardLng != null) {
           try {
             final placemarks = await placemarkFromCoordinates(
               guardLat!,
               guardLng!,
-              localeIdentifier: "en", // ✅ force English output
+              localeIdentifier: "en",
             );
             if (placemarks.isNotEmpty) {
               final place = placemarks.first;
@@ -134,14 +152,14 @@ class _SosConfirmationScreenState extends State<SosConfirmationScreen> {
               const SizedBox(height: 40),
               ElevatedButton(
                 onPressed: () {
-                  if (guardLat != null && guardLng != null) {
+                  if (studentLat != null && studentLng != null) {
                     Navigator.push(
                       context,
                       MaterialPageRoute(
                         builder: (_) => StudentTrackingPage(
-                          studentLat: guardLat!,
-                          studentLng: guardLng!,
-                          guardUserId: widget.guardId, // ✅ fixed here
+                          studentLat: studentLat!,      // ✅ student SOS location
+                          studentLng: studentLng!,      // ✅ student SOS location
+                          guardUserId: widget.guardId,  // ✅ assigned guard
                         ),
                       ),
                     );

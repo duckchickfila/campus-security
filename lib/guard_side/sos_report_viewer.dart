@@ -38,7 +38,7 @@ class _SosReportViewerState extends State<SosReportViewer> {
       report = await _supabase
           .from('sos_reports')
           .select(
-              'id, user_id, student_name, location, lat, lng, status, video_url')
+              'id, user_id, student_name, location, lat, lng, status, video_url, assigned_guard_id')
           .eq('id', widget.sosId)
           .maybeSingle();
       debugPrint("📄 sos_reports row: $report");
@@ -65,9 +65,6 @@ class _SosReportViewerState extends State<SosReportViewer> {
           debugPrint(
               "❌ Error fetching student_details for user_id=$userId: $e");
         }
-      } else {
-        debugPrint(
-            "⚠️ sos_reports.user_id is null/empty; cannot fetch student_details");
       }
 
       final lat = double.tryParse(report['lat']?.toString() ?? '');
@@ -82,7 +79,6 @@ class _SosReportViewerState extends State<SosReportViewer> {
                 "${place.street ?? ''}, ${place.locality ?? ''}, ${place.administrativeArea ?? ''}, ${place.country ?? ''}";
             debugPrint("📍 Resolved address: $_address");
           } else {
-            debugPrint("⚠️ No placemarks returned for lat/lng");
             _address = "Lat: $lat, Lng: $lng";
           }
         } catch (e) {
@@ -139,7 +135,6 @@ class _SosReportViewerState extends State<SosReportViewer> {
     }
   }
 
-  // ✅ CHANGED: now opens in-app navigation screen
   void _openMapNavigation(double lat, double lng, String guardId) {
     Navigator.push(
       context,
@@ -147,7 +142,7 @@ class _SosReportViewerState extends State<SosReportViewer> {
         builder: (_) => MapNavigationPage(
           studentLat: lat,
           studentLng: lng,
-          guardUserId: guardId, // ✅ pass guardId here
+          guardUserId: guardId,
         ),
       ),
     );
@@ -201,6 +196,66 @@ class _SosReportViewerState extends State<SosReportViewer> {
       return GestureDetector(onTap: onTap, child: content);
     }
     return content;
+  }
+
+  // ✅ Video player widget with controls
+  Widget _buildVideoPlayer() {
+    if (_videoController == null || !_videoController!.value.isInitialized) {
+      return const Text("No video available");
+    }
+
+    return Column(
+      children: [
+        AspectRatio(
+          aspectRatio: _videoController!.value.aspectRatio,
+          child: VideoPlayer(_videoController!),
+        ),
+        VideoProgressIndicator(
+          _videoController!,
+          allowScrubbing: true,
+          colors: const VideoProgressColors(
+            playedColor: Colors.red,
+            bufferedColor: Colors.grey,
+            backgroundColor: Colors.black26,
+          ),
+        ),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            IconButton(
+              icon: const Icon(Icons.replay_10),
+              onPressed: () {
+                final pos = _videoController!.value.position;
+                _videoController!.seekTo(pos - const Duration(seconds: 10));
+              },
+            ),
+            IconButton(
+              icon: Icon(
+                _videoController!.value.isPlaying
+                    ? Icons.pause
+                    : Icons.play_arrow,
+              ),
+              onPressed: () {
+                setState(() {
+                  if (_videoController!.value.isPlaying) {
+                    _videoController!.pause();
+                  } else {
+                    _videoController!.play();
+                  }
+                });
+              },
+            ),
+            IconButton(
+              icon: const Icon(Icons.forward_10),
+              onPressed: () {
+                final pos = _videoController!.value.position;
+                _videoController!.seekTo(pos + const Duration(seconds: 10));
+              },
+            ),
+          ],
+        ),
+      ],
+    );
   }
 
   @override

@@ -3,11 +3,12 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:flutter_polyline_points/flutter_polyline_points.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:intl/intl.dart';
 
 class StudentTrackingPage extends StatefulWidget {
   final double studentLat;
   final double studentLng;
-  final String guardUserId; // use user_id consistently
+  final String guardUserId;
 
   const StudentTrackingPage({
     super.key,
@@ -32,7 +33,7 @@ class _StudentTrackingPageState extends State<StudentTrackingPage> {
 
   double? _guardLat;
   double? _guardLng;
-  String? _lastUpdated; // ✅ new field
+  String? _lastUpdated;
 
   @override
   void initState() {
@@ -58,18 +59,19 @@ class _StudentTrackingPageState extends State<StudentTrackingPage> {
     try {
       final response = await supabase
           .from('guard_details')
-          .select('last_lat, last_lng, last_updated') // ✅ fetch timestamp too
+          .select('last_lat, last_lng, last_updated')
           .eq('user_id', widget.guardUserId)
           .maybeSingle();
 
-      debugPrint("Guard details response: $response");
+      debugPrint("Initial guard_details response: $response");
 
       if (response != null &&
           response['last_lat'] != null &&
           response['last_lng'] != null) {
         final lat = (response['last_lat'] as num).toDouble();
         final lng = (response['last_lng'] as num).toDouble();
-        _lastUpdated = response['last_updated']; // ✅ store timestamp
+        _lastUpdated = response['last_updated'];
+        debugPrint("Initial guard location: $lat, $lng at $_lastUpdated");
         _updateGuardLocation(lat, lng);
       }
     } catch (e) {
@@ -89,7 +91,8 @@ class _StudentTrackingPageState extends State<StudentTrackingPage> {
         if (payload.newRecord['user_id'].toString() == widget.guardUserId) {
           final lat = (payload.newRecord['lat'] as num).toDouble();
           final lng = (payload.newRecord['lng'] as num).toDouble();
-          _lastUpdated = payload.newRecord['timestamp']; // ✅ update timestamp
+          _lastUpdated = payload.newRecord['timestamp'];
+          debugPrint("Realtime insert guard location: $lat, $lng at $_lastUpdated");
           _updateGuardLocation(lat, lng);
         }
       },
@@ -104,7 +107,8 @@ class _StudentTrackingPageState extends State<StudentTrackingPage> {
         if (payload.newRecord['user_id'].toString() == widget.guardUserId) {
           final lat = (payload.newRecord['lat'] as num).toDouble();
           final lng = (payload.newRecord['lng'] as num).toDouble();
-          _lastUpdated = payload.newRecord['timestamp']; // ✅ update timestamp
+          _lastUpdated = payload.newRecord['timestamp'];
+          debugPrint("Realtime update guard location: $lat, $lng at $_lastUpdated");
           _updateGuardLocation(lat, lng);
         }
       },
@@ -120,7 +124,6 @@ class _StudentTrackingPageState extends State<StudentTrackingPage> {
     LatLng guardPos = LatLng(lat, lng);
     LatLng studentPos = LatLng(widget.studentLat, widget.studentLng);
 
-    // Calculate distance in meters
     final meters = Geolocator.distanceBetween(
       studentPos.latitude,
       studentPos.longitude,
@@ -128,10 +131,12 @@ class _StudentTrackingPageState extends State<StudentTrackingPage> {
       guardPos.longitude,
     );
 
-    // Nudge student marker if overlapping
+    debugPrint("Student marker: $studentPos, Guard marker: $guardPos, Distance: $meters m");
+
     if (meters < 10) {
-      studentPos = LatLng(studentPos.latitude + 0.0001, studentPos.longitude);
-      _polylines.clear(); // no route when overlapping
+      guardPos = LatLng(guardPos.latitude + 0.0001, guardPos.longitude);
+      _polylines.clear();
+      debugPrint("Markers overlapped, nudged guard marker to $guardPos");
     }
 
     _markers = {
@@ -149,7 +154,6 @@ class _StudentTrackingPageState extends State<StudentTrackingPage> {
       ),
     };
 
-    // Draw route only if distance > ~10m
     if (meters > 10) {
       final result = await polylinePoints.getRouteBetweenCoordinates(
         googleApiKey: _googleApiKey,
@@ -192,6 +196,16 @@ class _StudentTrackingPageState extends State<StudentTrackingPage> {
         1000;
   }
 
+  String _formatTimestamp(String? isoString) {
+    if (isoString == null) return "";
+    try {
+      final dt = DateTime.parse(isoString).toLocal();
+      return DateFormat("dd MMM yyyy, hh:mm a").format(dt);
+    } catch (_) {
+      return isoString;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final hasGuard = _guardLat != null && _guardLng != null;
@@ -227,7 +241,7 @@ class _StudentTrackingPageState extends State<StudentTrackingPage> {
                         ),
                         if (_lastUpdated != null)
                           Text(
-                            "Last updated: $_lastUpdated",
+                            "Last updated: ${_formatTimestamp(_lastUpdated)}",
                             style: const TextStyle(
                               fontSize: 14,
                               color: Colors.grey,
