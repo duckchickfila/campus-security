@@ -67,7 +67,6 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   debugPrint("📡 Background handler fired");
   debugPrint("🔎 Full message payload (background isolate): ${message.toMap()}");
   // ❌ Do not call _showNotification here
-  // FCM will auto-display the notification block when app is backgrounded
 }
 
 Future<void> main() async {
@@ -76,7 +75,7 @@ Future<void> main() async {
   // ✅ Initialize Firebase
   await Firebase.initializeApp();
 
-  // ✅ Register background handler (must be after Firebase.initializeApp)
+  // ✅ Register background handler
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
   // ✅ Request notification permissions
@@ -85,13 +84,12 @@ Future<void> main() async {
     badge: true,
     sound: true,
   );
-  print('Notification permission status: ${settings.authorizationStatus}');
+  debugPrint('Notification permission status: ${settings.authorizationStatus}');
 
   // ✅ Initialize Supabase
   await Supabase.initialize(
     url: 'https://pvqkkfmzdjquqjxabzur.supabase.co',
-    anonKey:
-        'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB2cWtrZm16ZGpxdXFqeGFienVyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjYzOTQ0MzEsImV4cCI6MjA4MTk3MDQzMX0.V9V2SXbDt9mwWOQTaa_D_RW5puBxMVwtmhIqFG0ekvw',
+    anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB2cWtrZm16ZGpxdXFqeGFienVyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjYzOTQ0MzEsImV4cCI6MjA4MTk3MDQzMX0.V9V2SXbDt9mwWOQTaa_D_RW5puBxMVwtmhIqFG0ekvw',
   );
 
   // ✅ Initialize native SOS handler
@@ -119,7 +117,7 @@ Future<void> main() async {
     onDidReceiveBackgroundNotificationResponse: notificationTapBackground,
   );
 
-  // ✅ Create Android notification channel (Android 8+)
+  // ✅ Create Android notification channel
   await flutterLocalNotificationsPlugin
       .resolvePlatformSpecificImplementation<
           AndroidFlutterLocalNotificationsPlugin>()
@@ -135,7 +133,6 @@ Future<void> main() async {
   // ✅ Handle notification taps when app is in background
   FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
     debugPrint("📲 Background notification tapped");
-    debugPrint("🔎 Full message payload (background): ${message.toMap()}");
     final sosId = message.data['sosId'];
     navigatorKey.currentState?.push(
       MaterialPageRoute(builder: (_) => SosReportViewer(sosId: sosId)),
@@ -146,7 +143,6 @@ Future<void> main() async {
   final initialMessage = await FirebaseMessaging.instance.getInitialMessage();
   if (initialMessage != null) {
     debugPrint("🛑 App opened from terminated state via notification");
-    debugPrint("🔎 Full message payload (terminated): ${initialMessage.toMap()}");
     final sosId = initialMessage.data['sosId'];
     navigatorKey.currentState?.push(
       MaterialPageRoute(builder: (_) => SosReportViewer(sosId: sosId)),
@@ -191,7 +187,7 @@ class MyApp extends StatelessWidget {
       return seenTutorial ? const GuardMainPage() : const GuardTutorialPages();
     }
 
-    // If neither profile exists, fallback to login
+    // Fallback
     return const LoginPage();
   }
 
