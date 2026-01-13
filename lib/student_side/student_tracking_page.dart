@@ -26,20 +26,21 @@ class _StudentTrackingPageState extends State<StudentTrackingPage> {
   Set<Polyline> _polylines = {};
   double? _distance;
 
-  final String _googleApiKey = "AIzaSyDfcZsNnccD6vaesWmCPbQtbjnheVDvmGk";
+  final String _googleApiKey = "YOUR_GOOGLE_MAPS_API_KEY";
   late PolylinePoints polylinePoints;
   final supabase = Supabase.instance.client;
 
   double? _guardLat;
   double? _guardLng;
+  String? _lastUpdated; // ✅ new field
 
   @override
   void initState() {
     super.initState();
     polylinePoints = PolylinePoints();
     _initMarkers();
-    _fetchInitialGuardLocation(); // last known location from guard_details
-    _subscribeToGuardLocation();  // live updates from guard_locations
+    _fetchInitialGuardLocation();
+    _subscribeToGuardLocation();
   }
 
   void _initMarkers() {
@@ -57,7 +58,7 @@ class _StudentTrackingPageState extends State<StudentTrackingPage> {
     try {
       final response = await supabase
           .from('guard_details')
-          .select('last_lat, last_lng')
+          .select('last_lat, last_lng, last_updated') // ✅ fetch timestamp too
           .eq('user_id', widget.guardUserId)
           .maybeSingle();
 
@@ -68,6 +69,7 @@ class _StudentTrackingPageState extends State<StudentTrackingPage> {
           response['last_lng'] != null) {
         final lat = (response['last_lat'] as num).toDouble();
         final lng = (response['last_lng'] as num).toDouble();
+        _lastUpdated = response['last_updated']; // ✅ store timestamp
         _updateGuardLocation(lat, lng);
       }
     } catch (e) {
@@ -87,6 +89,7 @@ class _StudentTrackingPageState extends State<StudentTrackingPage> {
         if (payload.newRecord['user_id'].toString() == widget.guardUserId) {
           final lat = (payload.newRecord['lat'] as num).toDouble();
           final lng = (payload.newRecord['lng'] as num).toDouble();
+          _lastUpdated = payload.newRecord['timestamp']; // ✅ update timestamp
           _updateGuardLocation(lat, lng);
         }
       },
@@ -101,6 +104,7 @@ class _StudentTrackingPageState extends State<StudentTrackingPage> {
         if (payload.newRecord['user_id'].toString() == widget.guardUserId) {
           final lat = (payload.newRecord['lat'] as num).toDouble();
           final lng = (payload.newRecord['lng'] as num).toDouble();
+          _lastUpdated = payload.newRecord['timestamp']; // ✅ update timestamp
           _updateGuardLocation(lat, lng);
         }
       },
@@ -212,12 +216,24 @@ class _StudentTrackingPageState extends State<StudentTrackingPage> {
                 if (_distance != null)
                   Padding(
                     padding: const EdgeInsets.all(8.0),
-                    child: Text(
-                      "Guard is ${_distance!.toStringAsFixed(2)} km away",
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
+                    child: Column(
+                      children: [
+                        Text(
+                          "Guard is ${_distance!.toStringAsFixed(2)} km away",
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        if (_lastUpdated != null)
+                          Text(
+                            "Last updated: $_lastUpdated",
+                            style: const TextStyle(
+                              fontSize: 14,
+                              color: Colors.grey,
+                            ),
+                          ),
+                      ],
                     ),
                   ),
               ],

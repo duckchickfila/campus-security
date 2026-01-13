@@ -73,12 +73,13 @@ class _MapNavigationPageState extends State<MapNavigationPage> {
     final lng = _guardLocation!.longitude;
     if (lat != null && lng != null) {
       await supabase.from('guard_locations').upsert({
-        'user_id': widget.guardUserId, // publish with user_id
+        'user_id': widget.guardUserId,
         'lat': lat,
         'lng': lng,
         'timestamp': DateTime.now().toIso8601String(),
       });
 
+      // ✅ also update guard_details with last_updated
       await supabase
           .from('guard_details')
           .update({
