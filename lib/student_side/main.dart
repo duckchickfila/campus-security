@@ -4,7 +4,6 @@ import 'package:demo_app/student_side/login_page.dart';
 import 'package:demo_app/student_side/tutorial_pages.dart';
 import 'package:demo_app/guard_side/main_page.dart';
 import 'package:demo_app/guard_side/tutorial_pages.dart';
-import 'package:demo_app/guard_side/guard_report_viewer.dart'; // deep-link navigation
 import 'package:demo_app/guard_side/sos_report_viewer.dart';   // notifications
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'soshandler.dart';
@@ -28,7 +27,7 @@ const AndroidNotificationChannel sosChannel = AndroidNotificationChannel(
   importance: Importance.max,
 );
 
-/// Show local notification
+/// Show local notification (used for foreground messages)
 void _showNotification(RemoteMessage message) async {
   const AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
     'sos_channel',
@@ -67,7 +66,8 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp();
   debugPrint("📡 Background handler fired");
   debugPrint("🔎 Full message payload (background isolate): ${message.toMap()}");
-  _showNotification(message);
+  // ❌ Do not call _showNotification here
+  // FCM will auto-display the notification block when app is backgrounded
 }
 
 Future<void> main() async {
@@ -166,25 +166,6 @@ class MyApp extends StatelessWidget {
 
     final userId = Supabase.instance.client.auth.currentUser?.id;
     if (userId == null) return const LoginPage();
-
-    // ✅ Capture FCM token and update guard_details
-    final token = await FirebaseMessaging.instance.getToken();
-    if (token != null) {
-      print('FCM token for this device: $token');
-      await Supabase.instance.client
-          .from('guard_details')
-          .update({'fcm_token': token})
-          .eq('user_id', userId);
-    }
-
-    // ✅ Listen for token refresh
-    FirebaseMessaging.instance.onTokenRefresh.listen((newToken) async {
-      print('FCM token refreshed: $newToken');
-      await Supabase.instance.client
-          .from('guard_details')
-          .update({'fcm_token': newToken})
-          .eq('user_id', userId);
-    });
 
     // ✅ Check if user exists in student_details
     final studentProfile = await Supabase.instance.client

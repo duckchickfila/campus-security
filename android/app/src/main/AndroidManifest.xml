@@ -27,7 +27,7 @@
         <!-- Default color for FCM notifications -->
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_color"
-            android:resource="@color/purple_500" />
+            android:resource="@android:color/holo_red_dark" />
 
         <!-- Main Flutter Activity -->
         <activity

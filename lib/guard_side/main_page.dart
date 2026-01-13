@@ -59,7 +59,9 @@ class _GuardMainPageState extends State<GuardMainPage> {
             .from('guard_details')
             .update({'fcm_token': token})
             .eq('user_id', userId);
-        debugPrint("FCM token registered for guard $userId");
+        debugPrint("✅ FCM token registered for guard $userId: $token");
+      } else {
+        debugPrint("⚠️ No FCM token retrieved for guard $userId");
       }
 
       // Keep DB in sync if token refreshes
@@ -68,10 +70,10 @@ class _GuardMainPageState extends State<GuardMainPage> {
             .from('guard_details')
             .update({'fcm_token': newToken})
             .eq('user_id', userId);
-        debugPrint("FCM token refreshed for guard $userId");
+        debugPrint("🔄 FCM token refreshed for guard $userId: $newToken");
       });
     } catch (e) {
-      debugPrint("Error registering FCM token: $e");
+      debugPrint("❌ Error registering FCM token: $e");
     }
   }
 
@@ -223,7 +225,7 @@ class _GuardMainPageState extends State<GuardMainPage> {
         value: guardId,
       ),
       callback: (PostgresChangePayload payload) {
-        debugPrint("Realtime payload received: ${payload.newRecord}");
+        debugPrint("📡 Realtime SOS payload received: ${payload.newRecord}");
 
         final sos = payload.newRecord;
         if (sos != null) {
@@ -236,13 +238,13 @@ class _GuardMainPageState extends State<GuardMainPage> {
             sosId,
           );
         } else {
-          debugPrint("Realtime event received but sos record was null");
+          debugPrint("⚠️ Realtime event received but sos record was null");
         }
       },
     );
 
     channel.subscribe();
-    debugPrint("Subscribed to sos_reports realtime for guard $guardId");
+    debugPrint("✅ Subscribed to sos_reports realtime for guard $guardId");
   }
   
   Widget _buildReportCard(Map<String, dynamic> report, bool isHandled) {

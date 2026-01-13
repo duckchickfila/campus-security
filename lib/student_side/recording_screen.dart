@@ -204,7 +204,7 @@ class _RecordingScreenState extends State<RecordingScreen> {
 
     try {
       final response = await supabase.functions.invoke(
-        'send-sos',
+        'clever-endpoint',
         body: {
           'sosId': sosId,
           'guardId': nearestGuard['user_id'],
