@@ -26,7 +26,7 @@ class _StudentTrackingPageState extends State<StudentTrackingPage> {
   Set<Polyline> _polylines = {};
   double? _distance;
 
-  final String _googleApiKey = "YOUR_GOOGLE_MAPS_API_KEY";
+  final String _googleApiKey = "AIzaSyDfcZsNnccD6vaesWmCPbQtbjnheVDvmGk";
   late PolylinePoints polylinePoints;
   final supabase = Supabase.instance.client;
 
