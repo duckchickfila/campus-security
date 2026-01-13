@@ -132,7 +132,7 @@ Future<void> main() async {
 
   // ✅ Handle notification taps when app is in background
   FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
-    debugPrint("📲 Background notification tapped");
+    debugPrint("Background notification tapped");
     final sosId = message.data['sosId'];
     navigatorKey.currentState?.push(
       MaterialPageRoute(builder: (_) => SosReportViewer(sosId: sosId)),

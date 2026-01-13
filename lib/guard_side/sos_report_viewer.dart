@@ -140,13 +140,14 @@ class _SosReportViewerState extends State<SosReportViewer> {
   }
 
   // ✅ CHANGED: now opens in-app navigation screen
-  void _openMapNavigation(double lat, double lng) {
+  void _openMapNavigation(double lat, double lng, String guardId) {
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => MapNavigationPage(
           studentLat: lat,
           studentLng: lng,
+          guardUserId: guardId, // ✅ pass guardId here
         ),
       ),
     );
@@ -303,6 +304,7 @@ class _SosReportViewerState extends State<SosReportViewer> {
                                 _report!['lat'].toString()),
                             double.parse(
                                 _report!['lng'].toString()),
+                            _report!['guard_id'].toString(),
                           );
                         },
                         icon: const Icon(Icons.map,

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:geocoding/geocoding.dart'; // for reverse geocoding
+import 'student_tracking_page.dart'; // ✅ import your tracking page
 
 class SosConfirmationScreen extends StatefulWidget {
   final String sosId;
@@ -19,6 +20,8 @@ class SosConfirmationScreen extends StatefulWidget {
 class _SosConfirmationScreenState extends State<SosConfirmationScreen> {
   String? guardName;
   String? guardLocation;
+  double? guardLat;
+  double? guardLng;
   bool loading = true;
 
   @override
@@ -38,15 +41,14 @@ class _SosConfirmationScreenState extends State<SosConfirmationScreen> {
 
       if (response != null) {
         guardName = response['name'] ?? 'Unknown';
+        guardLat = response['last_lat'];
+        guardLng = response['last_lng'];
 
-        final lat = response['last_lat'];
-        final lng = response['last_lng'];
-
-        if (lat != null && lng != null) {
+        if (guardLat != null && guardLng != null) {
           try {
             final placemarks = await placemarkFromCoordinates(
-              lat,
-              lng,
+              guardLat!,
+              guardLng!,
               localeIdentifier: "en", // ✅ force English output
             );
             if (placemarks.isNotEmpty) {
@@ -79,9 +81,9 @@ class _SosConfirmationScreenState extends State<SosConfirmationScreen> {
       appBar: AppBar(
         title: const Text("SOS Submitted"),
         backgroundColor: Colors.red,
-        centerTitle: true, 
+        centerTitle: true,
       ),
-      body: Center( 
+      body: Center(
         child: Padding(
           padding: const EdgeInsets.all(24.0),
           child: Column(
@@ -103,7 +105,7 @@ class _SosConfirmationScreenState extends State<SosConfirmationScreen> {
                 child: Padding(
                   padding: const EdgeInsets.all(16),
                   child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.center, // ✅ center text
+                    crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
                       Text("SOS ID: ${widget.sosId}",
                           style: const TextStyle(
@@ -113,7 +115,8 @@ class _SosConfirmationScreenState extends State<SosConfirmationScreen> {
                         loading
                             ? "Assigned Guard: Loading..."
                             : "Assigned Guard: $guardName",
-                        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                        style: const TextStyle(
+                            fontSize: 20, fontWeight: FontWeight.bold),
                         textAlign: TextAlign.center,
                       ),
                       const SizedBox(height: 8),
@@ -131,7 +134,18 @@ class _SosConfirmationScreenState extends State<SosConfirmationScreen> {
               const SizedBox(height: 40),
               ElevatedButton(
                 onPressed: () {
-                  Navigator.popUntil(context, (route) => route.isFirst);
+                  if (guardLat != null && guardLng != null) {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => StudentTrackingPage(
+                          studentLat: guardLat!,
+                          studentLng: guardLng!,
+                          guardUserId: widget.guardId, // ✅ fixed here
+                        ),
+                      ),
+                    );
+                  }
                 },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.red,
@@ -142,7 +156,7 @@ class _SosConfirmationScreenState extends State<SosConfirmationScreen> {
                   ),
                 ),
                 child: const Text(
-                  "Back to Home",
+                  "Open Map Navigation",
                   style: TextStyle(fontSize: 18, color: Colors.white),
                 ),
               ),
