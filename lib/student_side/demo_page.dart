@@ -5,6 +5,8 @@ import 'recording_screen.dart';
 import 'custom_appbar.dart';
 import 'submit_report_page.dart';
 import 'resolved_report_viewer.dart';
+import 'sos_confirmation_screen.dart';
+import 'package:demo_app/student_side/resolved_sos_viewer.dart';
 
 class Demopage1 extends StatefulWidget {
   const Demopage1({super.key});
@@ -16,10 +18,23 @@ class Demopage1 extends StatefulWidget {
     // 🔄 Initialize immediately to avoid LateInitializationError
     late final Stream<List<Map<String, dynamic>>> _reportsStream =
         fetchUserReportsStream();
+    late final Stream<List<Map<String, dynamic>>> _sosReportsStream;
+    String _fmtDateTime(dynamic ts) {
+      if (ts == null) return 'N/A';
+      final dt = DateTime.tryParse(ts.toString());
+      if (dt == null) return ts.toString();
+      return dt.toLocal().toString().split('.').first; // yyyy-MM-dd HH:mm:ss
+    }
 
     @override
     void initState() {
       super.initState();
+      _sosReportsStream = Supabase.instance.client
+      .from('sos_reports')
+      .stream(primaryKey: ['id'])
+      .eq('user_id', Supabase.instance.client.auth.currentUser!.id)
+      .order('created_at', ascending: false)
+      .map((rows) => rows.cast<Map<String, dynamic>>());
       // no need to call _refreshReports here anymore
     }
 
@@ -71,6 +86,39 @@ class Demopage1 extends StatefulWidget {
               ),
             ],
           ),
+        ),
+      );
+    }
+
+    Widget _buildSosCard({
+      required String title,
+      required String label,
+      required String dateText,
+      required Color color,
+      required Widget iconWidget,
+    }) {
+      return Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: color,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 4)],
+        ),
+        child: Row(
+          children: [
+            iconWidget,
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 6),
+                  Text("$label: $dateText", style: const TextStyle(fontSize: 14)),
+                ],
+              ),
+            ),
+          ],
         ),
       );
     }
@@ -301,6 +349,122 @@ class Demopage1 extends StatefulWidget {
                   },
                 ),
               ),
+              
+              Expanded(
+              child: StreamBuilder<List<Map<String, dynamic>>>(
+                stream: _sosReportsStream,
+                builder: (context, snapshot) {
+                  if (!snapshot.hasData) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  if (snapshot.hasError) {
+                    return Center(child: Text("Error: ${snapshot.error}"));
+                  }
+
+                  final sos = snapshot.data ?? [];
+                  if (sos.isEmpty) {
+                    return const Center(child: Text("No SOS reports found"));
+                  }
+
+                  // Categorize by resolution_status
+                  final pendingSos = sos.where((r) => r['resolution_status'] == null).toList();
+                  final historySos = sos.where((r) {
+                    final rs = (r['resolution_status'] ?? '').toString();
+                    return rs == 'resolved' || rs == 'false_alarm';
+                  }).toList();
+
+                  return SingleChildScrollView(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // ✅ Pending SOS Section
+                        const Text('Pending SOS', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+                        const SizedBox(height: 12),
+                        if (pendingSos.isEmpty)
+                          const Center(
+                            child: Text("No pending SOS", style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
+                          )
+                        else
+                          ListView.separated(
+                            shrinkWrap: true,
+                            physics: const NeverScrollableScrollPhysics(),
+                            itemCount: pendingSos.length,
+                            separatorBuilder: (_, __) => const SizedBox(height: 12),
+                            itemBuilder: (context, index) {
+                              final r = pendingSos[index];
+                              final created = _fmtDateTime(r['created_at']);
+                              return GestureDetector(
+                                onTap: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => SosConfirmationScreen(
+                                        sosId: r['id'].toString(),
+                                        guardId: r['assigned_guard_id']?.toString() ?? '',
+                                        studentId: r['user_id']?.toString() ?? '',
+                                      ),
+                                    ),
+                                  );
+                                },
+                                child: _buildSosCard(
+                                  title: "SOS",
+                                  label: "View details",
+                                  dateText: created,
+                                  color: const Color.fromARGB(255, 255, 240, 200),
+                                  iconWidget: const Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 28),
+                                ),
+                              );
+                            },
+                          ),
+
+                        const SizedBox(height: 24),
+
+                        // ✅ SOS Report History Section
+                        const Text('SOS Report History', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+                        const SizedBox(height: 12),
+                        if (historySos.isEmpty)
+                          const Center(
+                            child: Text("No resolved SOS", style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
+                          )
+                        else
+                          ListView.separated(
+                            shrinkWrap: true,
+                            physics: const NeverScrollableScrollPhysics(),
+                            itemCount: historySos.length,
+                            separatorBuilder: (_, __) => const SizedBox(height: 12),
+                            itemBuilder: (context, index) {
+                              final r = historySos[index];
+                              final status = (r['resolution_status'] ?? r['status'] ?? '').toString();
+                              final resolvedAt = _fmtDateTime(r['resolved_at']);
+                              return GestureDetector(
+                                onTap: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => ResolvedSosViewer(
+                                        reportData: r, // we’ll implement this page next
+                                      ),
+                                    ),
+                                  );
+                                },
+                                child: _buildSosCard(
+                                  title: "SOS — ${status.isEmpty ? 'resolved' : status}",
+                                  label: "Resolved on",
+                                  dateText: resolvedAt,
+                                  color: const Color.fromARGB(255, 200, 255, 200),
+                                  iconWidget: const Icon(Icons.check_circle, color: Colors.green, size: 28),
+                                ),
+                              );
+                            },
+                          ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ),
+
             ],
           ),
         ),

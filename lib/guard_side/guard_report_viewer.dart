@@ -5,6 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path/path.dart' as p;
 import 'package:demo_app/guard_side/custom_appbar.dart';
+import 'package:video_player/video_player.dart';
 
 class GuardReportViewer extends StatefulWidget {
   final Map<String, dynamic> reportData;
@@ -230,228 +231,266 @@ String _formatDate(String? raw) {
   }
 
   @override
-Widget build(BuildContext context) {
-  const labelStyle = TextStyle(
-    fontSize: 20,
-    fontFamily: 'Inter',
-    fontWeight: FontWeight.bold,
-    color: Colors.black,
-  );
+  Widget build(BuildContext context) {
+    const labelStyle = TextStyle(
+      fontSize: 20,
+      fontFamily: 'Inter',
+      fontWeight: FontWeight.bold,
+      color: Colors.black,
+    );
 
-  const valueStyle = TextStyle(
-    fontSize: 18,
-    fontFamily: 'Inter',
-    fontWeight: FontWeight.w600,
-    color: Colors.black87,
-  );
+    const valueStyle = TextStyle(
+      fontSize: 18,
+      fontFamily: 'Inter',
+      fontWeight: FontWeight.w600,
+      color: Colors.black87,
+    );
 
-  const inputTextStyle = TextStyle(
-    fontSize: 20,
-    fontFamily: 'Inter',
-    fontWeight: FontWeight.bold,
-    color: Colors.black,
-  );
+    const inputTextStyle = TextStyle(
+      fontSize: 20,
+      fontFamily: 'Inter',
+      fontWeight: FontWeight.bold,
+      color: Colors.black,
+    );
 
-  final status = widget.reportData['status'] ?? 'pending';
+    final status = widget.reportData['status'] ?? 'pending';
 
-  return Scaffold(
-    appBar: const GuardCustomAppBar(),
-    body: SafeArea(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Status row
-              Row(
-                children: [
-                  Icon(
-                    status == 'resolved' ? Icons.check_circle : Icons.access_time,
-                    color: status == 'resolved' ? Colors.green : Colors.red,
-                  ),
-                  const SizedBox(width: 8),
-                  Text("Status: $status",
-                      style: const TextStyle(
-                          fontSize: 20, fontWeight: FontWeight.bold)),
-                ],
-              ),
-              const SizedBox(height: 12),
-
-              if (status == 'resolved')
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(12),
-                  margin: const EdgeInsets.only(bottom: 16),
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade300,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: const Text(
-                    "This report has been reviewed and cannot be edited.",
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.black87,
+    return Scaffold(
+      appBar: const GuardCustomAppBar(),
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: Form(
+            key: _formKey,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Status row
+                Row(
+                  children: [
+                    Icon(
+                      status == 'resolved' ? Icons.check_circle : Icons.access_time,
+                      color: status == 'resolved' ? Colors.green : Colors.red,
                     ),
-                    textAlign: TextAlign.center,
-                  ),
+                    const SizedBox(width: 8),
+                    Text("Status: $status",
+                        style: const TextStyle(
+                            fontSize: 20, fontWeight: FontWeight.bold)),
+                  ],
                 ),
-
-              // Non-editable fields
-              _buildReadOnlyField('Type', widget.reportData['type'], labelStyle, valueStyle),
-              const SizedBox(height: 20),
-              _buildReadOnlyField('Location', widget.reportData['location'], labelStyle, valueStyle),
-              const SizedBox(height: 20),
-              _buildReadOnlyField(
-                  'Date',
-                  (widget.reportData['date'] ??
-                          widget.reportData['date_submitted'] ??
-                          widget.reportData['created_at'])
-                      ?.toString(),
-                  labelStyle,
-                  valueStyle),
-              const SizedBox(height: 20),
-              _buildReadOnlyField('Details of Incident', widget.reportData['details'], labelStyle, valueStyle),
-              const SizedBox(height: 20),
-
-              const Text('Attachments:', style: labelStyle),
-              const SizedBox(height: 8),
-              _buildAttachmentPreviews(widget.reportData['attachments']),
-
-              const SizedBox(height: 28),
-              const Divider(),
-              const SizedBox(height: 12),
-
-              // Guard Action section only if not already resolved
-              if (status != 'resolved') ...[
-                const Text('Guard Action', style: labelStyle),
                 const SizedBox(height: 12),
 
-                DropdownButtonFormField<String>(
-                  value: selectedStatus,
-                  items: statuses
-                      .map((s) => DropdownMenuItem(
-                            value: s,
-                            child: Text(s, style: inputTextStyle),
-                          ))
-                      .toList(),
-                  onChanged: (val) => setState(() => selectedStatus = val),
-                  decoration: InputDecoration(
-                    labelText: 'Update Status',
-                    labelStyle: labelStyle,
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(20),
+                if (status == 'resolved')
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    margin: const EdgeInsets.only(bottom: 16),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade300,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Text(
+                      "This report has been reviewed and cannot be edited.",
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.black87,
+                      ),
+                      textAlign: TextAlign.center,
                     ),
                   ),
-                  validator: (val) => val == null ? 'Please select a status' : null,
-                ),
 
-                const SizedBox(height: 20),
+                // ✅ Non-editable fields
+                if (widget.source == 'sos') ...[
+                  _buildReadOnlyField('Student Name', widget.reportData['student_name'], labelStyle, valueStyle),
+                  const SizedBox(height: 20),
+                  _buildReadOnlyField('Enrollment No', widget.reportData['enrollment_number'], labelStyle, valueStyle),
+                  const SizedBox(height: 20),
+                  _buildReadOnlyField('Contact No', widget.reportData['contact_number'], labelStyle, valueStyle),
+                  const SizedBox(height: 20),
+                  _buildReadOnlyField('Location', widget.reportData['location'], labelStyle, valueStyle),
+                  const SizedBox(height: 20),
+                  _buildReadOnlyField('Created At', widget.reportData['created_at']?.toString(), labelStyle, valueStyle),
+                  const SizedBox(height: 20),
+                ] else ...[
+                  _buildReadOnlyField('Type', widget.reportData['type'], labelStyle, valueStyle),
+                  const SizedBox(height: 20),
+                  _buildReadOnlyField('Location', widget.reportData['location'], labelStyle, valueStyle),
+                  const SizedBox(height: 20),
+                  _buildReadOnlyField(
+                    'Date',
+                    (widget.reportData['date'] ??
+                            widget.reportData['date_submitted'] ??
+                            widget.reportData['created_at'])
+                        ?.toString(),
+                    labelStyle,
+                    valueStyle,
+                  ),
+                  const SizedBox(height: 20),
+                  _buildReadOnlyField('Details of Incident', widget.reportData['details'], labelStyle, valueStyle),
+                  const SizedBox(height: 20),
+                ],
 
-                // Show Save Status button for any status except pending and resolved
-                if (selectedStatus != null &&
-                    selectedStatus != 'pending' &&
-                    selectedStatus != 'resolved') ...[
-                  Center(
-                    child: SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          textStyle: const TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        onPressed: _updateStatus,
-                        child: const Text('Save Status'),
-                      ),
+                // ✅ Evidence video for SOS
+                if (widget.source == 'sos' && widget.reportData['video_url'] != null) ...[
+                  const Text('Evidence Video:', style: labelStyle),
+                  const SizedBox(height: 8),
+                  AspectRatio(
+                    aspectRatio: 16 / 9,
+                    child: VideoPlayer(
+                      VideoPlayerController.networkUrl(Uri.parse(widget.reportData['video_url']))
+                        ..initialize().then((_) {
+                          setState(() {});
+                        }),
                     ),
                   ),
                   const SizedBox(height: 20),
                 ],
 
-                // Show remarks + evidence + submit only when status = resolved (selected, not already resolved)
-                if (selectedStatus == 'resolved') ...[
-                  TextFormField(
-                    controller: _remarksController,
-                    maxLines: 3,
+                const Text('Attachments:', style: labelStyle),
+                const SizedBox(height: 8),
+                _buildAttachmentPreviews(
+                  widget.source == 'sos'
+                      ? widget.reportData['guard_attachments']
+                      : widget.reportData['attachments'],
+                ),
+
+                const SizedBox(height: 28),
+                const Divider(),
+                const SizedBox(height: 12),
+
+                // Guard Action section only if not already resolved
+                if (status != 'resolved') ...[
+                  const Text('Guard Action', style: labelStyle),
+                  const SizedBox(height: 12),
+
+                  DropdownButtonFormField<String>(
+                    value: selectedStatus,
+                    items: statuses
+                        .map((s) => DropdownMenuItem(
+                              value: s,
+                              child: Text(s, style: inputTextStyle),
+                            ))
+                        .toList(),
+                    onChanged: (val) => setState(() => selectedStatus = val),
                     decoration: InputDecoration(
-                      labelText: 'Remarks',
+                      labelText: 'Update Status',
                       labelStyle: labelStyle,
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(20),
                       ),
                     ),
-                    validator: (v) => v == null || v.trim().isEmpty ? 'Required' : null,
+                    validator: (val) => val == null ? 'Please select a status' : null,
                   ),
-                  const SizedBox(height: 12),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      ElevatedButton.icon(
-                        icon: const Icon(Icons.attach_file),
-                        label: const Text('Add Evidence'),
-                        onPressed: _pickEvidence,
-                      ),
-                      ElevatedButton.icon(
-                        icon: const Icon(Icons.videocam),
-                        label: const Text('Add Video'),
-                        onPressed: _pickVideo,
-                      ),
-                      if (evidenceFiles.isNotEmpty)
-                        ...evidenceFiles.map((f) => Container(
-                              width: 90,
-                              height: 90,
-                              decoration: BoxDecoration(
-                                border: Border.all(color: Colors.grey),
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              clipBehavior: Clip.antiAlias,
-                              child: _previewLocalFile(f),
-                            )),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  Center(
-                    child: SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          textStyle: const TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
+
+                  const SizedBox(height: 20),
+
+                  // Show Save Status button for any status except pending and resolved
+                  if (selectedStatus != null &&
+                      selectedStatus != 'pending' &&
+                      selectedStatus != 'resolved') ...[
+                    Center(
+                      child: SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            textStyle: const TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
+                          onPressed: _updateStatus,
+                          child: const Text('Save Status'),
                         ),
-                        onPressed: _updateStatus,
-                        child: const Text('Submit Remark'),
                       ),
                     ),
+                    const SizedBox(height: 20),
+                  ],
+
+                  // Show remarks + evidence + submit only when status = resolved (selected, not already resolved)
+                  if (selectedStatus == 'resolved') ...[
+                    TextFormField(
+                      controller: _remarksController,
+                      maxLines: 3,
+                      decoration: InputDecoration(
+                        labelText: 'Remarks',
+                        labelStyle: labelStyle,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                      ),
+                      validator: (v) => v == null || v.trim().isEmpty ? 'Required' : null,
+                    ),
+                    const SizedBox(height: 12),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        ElevatedButton.icon(
+                          icon: const Icon(Icons.attach_file),
+                          label: const Text('Add Evidence'),
+                          onPressed: _pickEvidence,
+                        ),
+                        ElevatedButton.icon(
+                          icon: const Icon(Icons.videocam),
+                          label: const Text('Add Video'),
+                          onPressed: _pickVideo,
+                        ),
+                        if (evidenceFiles.isNotEmpty)
+                          ...evidenceFiles.map((f) => Container(
+                                width: 90,
+                                height: 90,
+                                decoration: BoxDecoration(
+                                  border: Border.all(color: Colors.grey),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                clipBehavior: Clip.antiAlias,
+                                child: _previewLocalFile(f),
+                              )),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    Center(
+                      child: SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            textStyle: const TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          onPressed: _updateStatus,
+                          child: const Text('Submit Remark'),
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+
+                // If already resolved, show remarks + attachments read-only
+                if (status == 'resolved') ...[
+                  const SizedBox(height: 20),
+                  const Text('Remarks:', style: labelStyle),
+                  const SizedBox(height: 8),
+                  Text(widget.reportData['remarks'] ?? 'No remarks', style: valueStyle),
+                  const SizedBox(height: 20),
+
+                  const Text('Evidence:', style: labelStyle),
+                  const SizedBox(height: 8),
+                  _buildAttachmentPreviews(
+                    widget.source == 'sos'
+                        ? widget.reportData['guard_attachments']
+                        : widget.reportData['attachments'],
                   ),
                 ],
               ],
-
-              // If already resolved, show remarks + attachments read-only
-              if (status == 'resolved') ...[
-                const SizedBox(height: 20),
-                const Text('Remarks:', style: labelStyle),
-                const SizedBox(height: 8),
-                Text(widget.reportData['remarks'] ?? 'No remarks', style: valueStyle),
-                const SizedBox(height: 20),
-
-                const Text('Evidence:', style: labelStyle),
-                const SizedBox(height: 8),
-                _buildAttachmentPreviews(widget.reportData['attachments']),
-              ],
-            ],
+            ),
           ),
         ),
       ),
-    ),
-  );
-}
+    );
+  }
 }

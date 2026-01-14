@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:image_picker/image_picker.dart';
-import 'dart:io';
 
 class ChatPage extends StatefulWidget {
   final String sosId;
@@ -27,7 +25,6 @@ class _ChatPageState extends State<ChatPage> {
   String? guardName;
   String? studentName;
 
-  final ImagePicker _picker = ImagePicker();
   final ScrollController _scrollController = ScrollController();
 
   @override
@@ -62,14 +59,14 @@ class _ChatPageState extends State<ChatPage> {
     });
   }
 
-  Future<void> _sendMessage({String? content, String? attachmentUrl}) async {
+  Future<void> _sendMessage(String content) async {
     final userId = _supabase.auth.currentUser?.id;
     if (userId == null) {
       print("⚠️ No logged in user, cannot send message");
       return;
     }
 
-    if ((content == null || content.trim().isEmpty) && attachmentUrl == null) {
+    if (content.trim().isEmpty) {
       print("⚠️ Empty message, not sending");
       return;
     }
@@ -81,8 +78,7 @@ class _ChatPageState extends State<ChatPage> {
             'sos_id': widget.sosId,
             'sender_id': userId,
             'receiver_id': userId == widget.guardId ? widget.studentId : widget.guardId,
-            'content': content ?? '',
-            'attachment_url': attachmentUrl, // ✅ correct column
+            'content': content.trim(),
           })
           .select();
 
@@ -100,30 +96,11 @@ class _ChatPageState extends State<ChatPage> {
     }
   }
 
-  Future<void> _pickImage(ImageSource source) async {
-    final pickedFile = await _picker.pickImage(source: source, imageQuality: 70);
-    if (pickedFile != null) {
-      final file = File(pickedFile.path);
-      final userId = _supabase.auth.currentUser?.id;
-      if (userId == null) return;
-
-      final path =
-          'chat/${widget.sosId}/${DateTime.now().millisecondsSinceEpoch}_${pickedFile.name}';
-      await _supabase.storage.from('chat_attachments').upload(path, file);
-
-      final publicUrl =
-          _supabase.storage.from('chat_attachments').getPublicUrl(path);
-
-      await _sendMessage(attachmentUrl: publicUrl);
-    }
-  }
-
   Widget _buildMessageBubble(Map<String, dynamic> message) {
     final userId = _supabase.auth.currentUser?.id;
     final isMe = message['sender_id'] == userId;
 
     final content = message['content'] as String?;
-    final attachmentUrl = message['attachment_url'] as String?;
 
     // show sender name
     final senderId = message['sender_id'] as String?;
@@ -158,21 +135,6 @@ class _ChatPageState extends State<ChatPage> {
                   style: TextStyle(
                     color: isMe ? Colors.white : Colors.black87,
                     fontSize: 16,
-                  ),
-                ),
-              ),
-            if (attachmentUrl != null)
-              Padding(
-                padding: const EdgeInsets.only(top: 8.0),
-                child: GestureDetector(
-                  onTap: () {
-                    // TODO: open image viewer
-                  },
-                  child: Image.network(
-                    attachmentUrl,
-                    height: 150,
-                    width: 150,
-                    fit: BoxFit.cover,
                   ),
                 ),
               ),
@@ -217,20 +179,6 @@ class _ChatPageState extends State<ChatPage> {
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               child: Row(
                 children: [
-                  PopupMenuButton<ImageSource>(
-                    icon: const Icon(Icons.attach_file, color: Colors.red),
-                    onSelected: (source) => _pickImage(source),
-                    itemBuilder: (context) => [
-                      const PopupMenuItem(
-                        value: ImageSource.camera,
-                        child: Text("Camera"),
-                      ),
-                      const PopupMenuItem(
-                        value: ImageSource.gallery,
-                        child: Text("Gallery"),
-                      ),
-                    ],
-                  ),
                   Expanded(
                     child: TextField(
                       controller: _controller,
@@ -243,7 +191,7 @@ class _ChatPageState extends State<ChatPage> {
                   const SizedBox(width: 8),
                   IconButton(
                     icon: const Icon(Icons.send, color: Colors.red),
-                    onPressed: () => _sendMessage(content: _controller.text),
+                    onPressed: () => _sendMessage(_controller.text),
                   ),
                 ],
               ),

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path/path.dart' as p;
+import 'package:geocoding/geocoding.dart';
 import 'custom_appbar.dart';
 
 class ResolveReportPage extends StatefulWidget {
@@ -30,10 +31,39 @@ class _ResolveReportPageState extends State<ResolveReportPage> {
     'escalated',
   ];
 
+  String? _reverseAddress;
+
   @override
   void initState() {
     super.initState();
     selectedStatus = widget.reportData['status'] ?? 'pending';
+    _loadReverseAddress();
+  }
+
+  Future<void> _loadReverseAddress() async {
+    final lat = double.tryParse(widget.reportData['lat']?.toString() ?? '');
+    final lng = double.tryParse(widget.reportData['lng']?.toString() ?? '');
+    if (lat != null && lng != null) {
+      try {
+        final placemarks = await placemarkFromCoordinates(lat, lng);
+        if (placemarks.isNotEmpty) {
+          final place = placemarks.first;
+          setState(() {
+            _reverseAddress =
+                "${place.street ?? ''}, ${place.locality ?? ''}, ${place.administrativeArea ?? ''}, ${place.country ?? ''}";
+          });
+        } else {
+          setState(() {
+            _reverseAddress = "Lat: $lat, Lng: $lng";
+          });
+        }
+      } catch (e) {
+        debugPrint("⚠️ Reverse geocoding failed: $e");
+        setState(() {
+          _reverseAddress = "Lat: $lat, Lng: $lng";
+        });
+      }
+    }
   }
 
   Future<void> _pickEvidence() async {
@@ -96,6 +126,15 @@ class _ResolveReportPageState extends State<ResolveReportPage> {
       final guardId = _supabase.auth.currentUser?.id;
 
       final payload = {
+        // keep existing student info so it doesn’t get lost
+        'student_name': widget.reportData['student_name'],
+        'enrollment_number': widget.reportData['enrollment_number'],
+        'contact_number': widget.reportData['contact_number'],
+        'location': widget.reportData['location'],
+        'lat': widget.reportData['lat'],
+        'lng': widget.reportData['lng'],
+
+        // resolution fields
         'status': 'resolved',
         'resolved_at': DateTime.now().toIso8601String(),
         'resolved_by': guardId,
@@ -149,6 +188,13 @@ class _ResolveReportPageState extends State<ResolveReportPage> {
   Widget build(BuildContext context) {
     final report = widget.reportData;
 
+    // Normalize and validate initial status
+    final currentStatus = report['status']?.toString().toLowerCase();
+    final validStatuses = statuses.map((s) => s.toLowerCase()).toList();
+    if (selectedStatus == null || !validStatuses.contains(selectedStatus!.toLowerCase())) {
+      selectedStatus = validStatuses.contains(currentStatus) ? currentStatus : null;
+    }
+
     return Scaffold(
       appBar: const GuardCustomAppBar(),
       body: SafeArea(
@@ -165,7 +211,7 @@ class _ResolveReportPageState extends State<ResolveReportPage> {
                 const SizedBox(height: 12),
                 _buildReadOnlyField('Contact No', report['contact_number']),
                 const SizedBox(height: 12),
-                _buildReadOnlyField('Location', report['location']),
+                _buildReadOnlyField('Location', _reverseAddress ?? report['location']),
                 const SizedBox(height: 12),
                 _buildReadOnlyField('Status', report['status']),
                 const SizedBox(height: 24),
@@ -178,10 +224,12 @@ class _ResolveReportPageState extends State<ResolveReportPage> {
                   value: selectedStatus,
                   items: statuses
                       .map((s) => DropdownMenuItem(
-                            value: s,
-                            child: Text(s,
-                                style: const TextStyle(
-                                    fontSize: 18, fontWeight: FontWeight.w600)),
+                            value: s.toLowerCase(),
+                            child: Text(
+                              s,
+                              style: const TextStyle(
+                                  fontSize: 18, fontWeight: FontWeight.w600),
+                            ),
                           ))
                       .toList(),
                   onChanged: (val) => setState(() => selectedStatus = val),

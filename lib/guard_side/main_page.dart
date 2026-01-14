@@ -34,6 +34,10 @@ class _GuardMainPageState extends State<GuardMainPage> {
   List<Map<String, dynamic>> _pendingReports = [];
   List<Map<String, dynamic>> _handledReports = [];
 
+  late final Stream<List<Map<String, dynamic>>> _guardSosStream;
+
+
+
   @override
   void initState() {
     super.initState();

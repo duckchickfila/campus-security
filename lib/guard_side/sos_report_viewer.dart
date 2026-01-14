@@ -23,6 +23,7 @@ class _SosReportViewerState extends State<SosReportViewer> {
   Map<String, dynamic>? _studentDetails;
   String? _address;
   VideoPlayerController? _videoController;
+  bool _videoInitError = false; // <-- add this
 
   @override
   void initState() {
@@ -30,12 +31,95 @@ class _SosReportViewerState extends State<SosReportViewer> {
     _loadReport();
   }
 
+  // Add this helper inside _SosReportViewerState
+  Future<void> _openExternalPlayer(String videoUrl) async {
+    final uri = Uri.parse(videoUrl);
+    try {
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } else {
+        debugPrint("❌ Could not launch external player for $videoUrl");
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Could not open external player")),
+        );
+      }
+    } catch (e) {
+      debugPrint("💥 Exception launching external player: $e");
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Error opening external player")),
+      );
+    }
+  }
+
   @override
   void dispose() {
     debugPrint("🛑 Disposing video controller");
+    _videoController?.removeListener(_onVideoChanged);
     _videoController?.pause();
     _videoController?.dispose();
     super.dispose();
+  }
+
+  void _onVideoChanged() {
+    if (!mounted || _videoController == null) return;
+
+    final v = _videoController!.value;
+    debugPrint("🎥 Video state changed: "
+        "initialized=${v.isInitialized}, "
+        "playing=${v.isPlaying}, "
+        "pos=${v.position}, "
+        "dur=${v.duration}, "
+        "buffered=${v.buffered}, "
+        "error=${v.hasError ? v.errorDescription : 'none'}");
+
+    setState(() {});
+  }
+
+  Future<void> _setupVideoController(String url) async {
+    debugPrint("🎬 Setting up VideoPlayerController for URL=$url");
+
+    // Dispose any previous controller
+    if (_videoController != null) {
+      debugPrint("🧹 Disposing old controller before creating new one");
+      _videoController?.removeListener(_onVideoChanged);
+      await _videoController?.pause();
+      await _videoController?.dispose();
+    }
+
+    _videoInitError = false;
+
+    try {
+      debugPrint("📡 Creating VideoPlayerController.networkUrl");
+      _videoController = VideoPlayerController.networkUrl(Uri.parse(url));
+      _videoController!.addListener(_onVideoChanged);
+
+      debugPrint("⏳ Initializing video controller...");
+      await _videoController!.initialize();
+
+      debugPrint("✅ Initialized: duration=${_videoController!.value.duration}, "
+          "aspectRatio=${_videoController!.value.aspectRatio}, "
+          "size=${_videoController!.value.size}, "
+          "isPlaying=${_videoController!.value.isPlaying}, "
+          "hasError=${_videoController!.value.hasError}");
+
+      if (_videoController!.value.hasError) {
+        debugPrint("❌ Video error: ${_videoController!.value.errorDescription}");
+      } else {
+        debugPrint("🔁 Setting looping=false, volume=1.0, autoplaying...");
+        await _videoController!.setLooping(false);
+        await _videoController!.setVolume(1.0);
+        _videoController!.play();
+      }
+
+      if (mounted) {
+        debugPrint("🔄 Triggering setState after init");
+        setState(() {});
+      }
+    } catch (e) {
+      debugPrint("💥 Exception initializing video: $e");
+      _videoInitError = true;
+      if (mounted) setState(() {});
+    }
   }
 
   Future<void> _loadReport() async {
@@ -46,7 +130,7 @@ class _SosReportViewerState extends State<SosReportViewer> {
       report = await _supabase
           .from('sos_reports')
           .select(
-              'id, user_id, student_name, location, lat, lng, status, video_url, assigned_guard_id')
+              'id, user_id, student_name, enrollment_number, contact_number, location, lat, lng, status, video_url, assigned_guard_id')
           .eq('id', widget.sosId)
           .maybeSingle();
       debugPrint("📄 sos_reports row: $report");
@@ -96,29 +180,7 @@ class _SosReportViewerState extends State<SosReportViewer> {
       debugPrint("🔗 Video URL: $videoUrl");
 
       if (videoUrl.isNotEmpty) {
-        try {
-          _videoController = VideoPlayerController.network(videoUrl);
-
-          await _videoController!.initialize().then((_) {
-            debugPrint("✅ Video initialized: duration=${_videoController!.value.duration}");
-            setState(() {
-              // trigger rebuild once initialized
-            });
-            // safer autoplay after init
-            Future.delayed(const Duration(milliseconds: 300), () {
-              if (mounted) {
-                debugPrint("▶️ Starting playback");
-                _videoController!.play();
-              }
-            });
-          }).catchError((e) {
-            debugPrint("❌ Video initialization error: $e");
-          });
-
-          _videoController!.setVolume(1.0);
-        } catch (e) {
-          debugPrint("❌ Error setting up video controller: $e");
-        }
+        await _setupVideoController(videoUrl);
       }
     }
 
@@ -161,19 +223,20 @@ class _SosReportViewerState extends State<SosReportViewer> {
   }
 
   void _openResolvePage() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => const Scaffold(
-          body: Center(
-            child: Text(
-              "Resolve & Report Page (to be implemented)",
-              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-            ),
+    if (_report != null) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => ResolveReportPage(
+            reportData: _report!, // pass the full SOS report row
           ),
         ),
-      ),
-    );
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Report data not available")),
+      );
+    }
   }
 
   Widget _detailRow({
@@ -210,47 +273,86 @@ class _SosReportViewerState extends State<SosReportViewer> {
   }
 
   Widget _buildVideoPlayer() {
-    if (_videoController != null) {
-      if (_videoController!.value.isInitialized) {
-        return GestureDetector(
-          onTap: () {
-            setState(() {
-              if (_videoController!.value.position >=
-                  _videoController!.value.duration) {
-                _videoController!.seekTo(Duration.zero);
-              }
-              _videoController!.value.isPlaying
-                  ? _videoController!.pause()
-                  : _videoController!.play();
-            });
-          },
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              AspectRatio(
-                aspectRatio: _videoController!.value.aspectRatio,
-                child: VideoPlayer(_videoController!),
-              ),
-              if (!_videoController!.value.isPlaying)
-                const Icon(Icons.play_circle_fill,
-                    size: 100, color: Colors.white),
-            ],
+    debugPrint("🖼 Building video player widget...");
+
+    final videoUrl = _report?['video_url']?.toString() ?? '';
+
+    if (_videoInitError) {
+      debugPrint("⚠️ Video init error flag set");
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text("Video failed to load"),
+          const SizedBox(height: 8),
+          ElevatedButton.icon(
+            icon: const Icon(Icons.open_in_new),
+            label: const Text("Open in external player"),
+            onPressed: () => _openExternalPlayer(videoUrl),
           ),
-        );
-      } else {
-        return const Center(child: CircularProgressIndicator());
-      }
-    } else {
-      return const Padding(
-        padding: EdgeInsets.symmetric(vertical: 16),
-        child: Center(
-          child: Text(
-            "No video available",
-            style: TextStyle(fontSize: 18, color: Colors.grey),
-          ),
-        ),
+        ],
       );
     }
+
+    if (_videoController == null) {
+      debugPrint("🚫 No video controller available");
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text("No video available"),
+          if (videoUrl.isNotEmpty)
+            ElevatedButton.icon(
+              icon: const Icon(Icons.open_in_new),
+              label: const Text("Open in external player"),
+              onPressed: () => _openExternalPlayer(videoUrl),
+            ),
+        ],
+      );
+    }
+
+    if (_videoController!.value.hasError) {
+      debugPrint("❌ Controller has error: ${_videoController!.value.errorDescription}");
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text("Video error: ${_videoController!.value.errorDescription}"),
+          const SizedBox(height: 8),
+          if (videoUrl.isNotEmpty)
+            ElevatedButton.icon(
+              icon: const Icon(Icons.open_in_new),
+              label: const Text("Open in external player"),
+              onPressed: () => _openExternalPlayer(videoUrl),
+            ),
+        ],
+      );
+    }
+
+    if (!_videoController!.value.isInitialized) {
+      debugPrint("⏳ Controller not initialized yet");
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    debugPrint("🎬 Rendering video: aspectRatio=${_videoController!.value.aspectRatio}");
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          if (_videoController!.value.position >= _videoController!.value.duration) {
+            debugPrint("🔄 Restarting video from beginning");
+            _videoController!.seekTo(Duration.zero);
+            _videoController!.play();
+          } else if (_videoController!.value.isPlaying) {
+            debugPrint("⏸ Pausing video");
+            _videoController!.pause();
+          } else {
+            debugPrint("▶️ Playing video");
+            _videoController!.play();
+          }
+        });
+      },
+      child: AspectRatio(
+        aspectRatio: _videoController!.value.aspectRatio,
+        child: VideoPlayer(_videoController!),
+      ),
+    );
   }
 
  @override
@@ -264,6 +366,7 @@ class _SosReportViewerState extends State<SosReportViewer> {
     final studentName = _studentDetails?['name']?.toString();
     final studentEnrollment = _studentDetails?['enrollment_no']?.toString();
     final studentContact = _studentDetails?['contact_no']?.toString();
+    final videoUrl = _report?['video_url']?.toString() ?? '';
 
     return Scaffold(
       appBar: const GuardCustomAppBar(),
@@ -296,10 +399,9 @@ class _SosReportViewerState extends State<SosReportViewer> {
               _detailRow(label: "Status", value: _report!['status']?.toString()),
               const SizedBox(height: 24),
 
-              // ✅ Video player
+              // ✅ Video player with fallback
               Center(
                 child: Container(
-                  height: 480,
                   width: MediaQuery.of(context).size.width * 0.95,
                   margin: const EdgeInsets.symmetric(vertical: 20),
                   decoration: BoxDecoration(
@@ -343,8 +445,7 @@ class _SosReportViewerState extends State<SosReportViewer> {
                         final sosId = _report!['id'].toString();
                         final guardId =
                             _report!['assigned_guard_id']?.toString() ?? '';
-                        final studentId =
-                            _report!['user_id']?.toString() ?? '';
+                        final studentId = _report!['user_id']?.toString() ?? '';
 
                         if (sosId.isNotEmpty &&
                             guardId.isNotEmpty &&
@@ -379,33 +480,20 @@ class _SosReportViewerState extends State<SosReportViewer> {
                     ),
                     const SizedBox(height: 16),
 
+                    // ✅ Resolve & Report button
                     ElevatedButton.icon(
-                    onPressed: () {
-                      if (_report != null) {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => ResolveReportPage(
-                              reportData: _report!, // pass the full SOS report row
-                            ),
-                          ),
-                        );
-                      } else {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text("Report data not available")),
-                        );
-                      }
-                    },
-                    icon: const Icon(Icons.check_circle, color: Colors.white),
-                    label: const Text(
-                      "Resolve & Report",
-                      style: TextStyle(fontSize: 18, color: Colors.white),
+                      onPressed: () => _openResolvePage(),
+                      icon: const Icon(Icons.check_circle, color: Colors.white),
+                      label: const Text(
+                        "Resolve & Report",
+                        style: TextStyle(fontSize: 18, color: Colors.white),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.red[700],
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 24, vertical: 12),
+                      ),
                     ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.red[700],
-                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                    ),
-                  ),
                     const SizedBox(height: 24),
                   ],
                 ),
