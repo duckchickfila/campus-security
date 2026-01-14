@@ -111,28 +111,22 @@ Future<void> main() async {
     onDidReceiveNotificationResponse: (NotificationResponse response) async {
       final payload = response.payload;
       if (payload != null && payload.isNotEmpty) {
-        // ✅ Decide navigation based on payload type
         if (response.payload!.startsWith("chat_")) {
           final sosId = response.payload!.replaceFirst("chat_", "");
-          // ✅ Extract studentId from payload if available
           final studentId = response.payload!.split("_").length > 2
               ? response.payload!.split("_")[2]
               : "";
-          navigatorKey.currentState?.push(
-            MaterialPageRoute(
-              builder: (_) => ChatPage(
-                sosId: sosId,
-                guardId: Supabase.instance.client.auth.currentUser?.id ?? "",
-                studentId: studentId,
-              ),
+          navigatorKey.currentState?.push(MaterialPageRoute(
+            builder: (_) => ChatPage(
+              sosId: sosId,
+              guardId: Supabase.instance.client.auth.currentUser?.id ?? "",
+              studentId: studentId,
             ),
-          );
+          ));
         } else {
-          navigatorKey.currentState?.push(
-            MaterialPageRoute(
-              builder: (_) => SosReportViewer(sosId: payload),
-            ),
-          );
+          navigatorKey.currentState?.push(MaterialPageRoute(
+            builder: (_) => SosReportViewer(sosId: payload),
+          ));
         }
       }
     },
@@ -161,49 +155,46 @@ Future<void> main() async {
     final studentId = message.data['studentId'];
 
     if (chatId != null && chatId.isNotEmpty) {
-      debugPrint("📦 Navigating to ChatPage with sosId: $chatId");
-      navigatorKey.currentState?.push(
-        MaterialPageRoute(
-          builder: (_) => ChatPage(
-            sosId: chatId,
-            guardId: Supabase.instance.client.auth.currentUser?.id ?? "",
-            studentId: studentId ?? "",
-          ),
+      navigatorKey.currentState?.push(MaterialPageRoute(
+        builder: (_) => ChatPage(
+          sosId: chatId,
+          guardId: Supabase.instance.client.auth.currentUser?.id ?? "",
+          studentId: studentId ?? "",
         ),
-      );
+      ));
     } else if (sosId != null && sosId.isNotEmpty) {
-      debugPrint("📦 Navigating to SosReportViewer with sosId: $sosId");
-      navigatorKey.currentState?.push(
-        MaterialPageRoute(builder: (_) => SosReportViewer(sosId: sosId)),
-      );
+      navigatorKey.currentState?.push(MaterialPageRoute(
+        builder: (_) => SosReportViewer(sosId: sosId),
+      ));
     } else {
       debugPrint("⚠️ No valid payload in notification: ${message.data}");
     }
   });
 
+  runApp(MyApp(navigatorKey: navigatorKey));
+
   // ✅ Handle notification when app is opened from terminated state
   final initialMessage = await FirebaseMessaging.instance.getInitialMessage();
   if (initialMessage != null) {
-    debugPrint("🛑 App opened from terminated state via notification");
-    final sosId = initialMessage.data['sosId'];
-    final chatId = initialMessage.data['chatId'];
-    final studentId = initialMessage.data['studentId'];
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final sosId = initialMessage.data['sosId'];
+      final chatId = initialMessage.data['chatId'];
+      final studentId = initialMessage.data['studentId'];
 
-    if (chatId != null && chatId.isNotEmpty) {
-      navigatorKey.currentState?.push(
-        MaterialPageRoute(
+      if (chatId != null && chatId.isNotEmpty) {
+        navigatorKey.currentState?.push(MaterialPageRoute(
           builder: (_) => ChatPage(
             sosId: chatId,
             guardId: Supabase.instance.client.auth.currentUser?.id ?? "",
             studentId: studentId ?? "",
           ),
-        ),
-      );
-    } else if (sosId != null && sosId.isNotEmpty) {
-      navigatorKey.currentState?.push(
-        MaterialPageRoute(builder: (_) => SosReportViewer(sosId: sosId)),
-      );
-    }
+        ));
+      } else if (sosId != null && sosId.isNotEmpty) {
+        navigatorKey.currentState?.push(MaterialPageRoute(
+          builder: (_) => SosReportViewer(sosId: sosId),
+        ));
+      }
+    });
   }
 
   // ✅ Register FCM token in Supabase (student_details / guard_details)
@@ -212,7 +203,6 @@ Future<void> main() async {
   if (fcmToken != null && userId != null) {
     final supabase = Supabase.instance.client;
 
-    // First check if user is a student
     final studentProfile = await supabase
         .from('student_details')
         .select('user_id')
@@ -226,7 +216,6 @@ Future<void> main() async {
           .eq('user_id', userId);
       debugPrint("📡 FCM token registered for student $userId");
     } else {
-      // Otherwise assume guard
       await supabase
           .from('guard_details')
           .update({'fcm_token': fcmToken})
@@ -234,23 +223,22 @@ Future<void> main() async {
       debugPrint("📡 FCM token registered for guard $userId");
     }
   }
-
-  runApp(MyApp(navigatorKey: navigatorKey));
 }
 
 class MyApp extends StatelessWidget {
   final GlobalKey<NavigatorState> navigatorKey;
   const MyApp({super.key, required this.navigatorKey});
 
-  Future<Widget> _getHome() async {
+  Future<Widget> _getHomeFuture() async {
     final session = Supabase.instance.client.auth.currentSession;
     if (session == null) return const LoginPage();
 
     final userId = Supabase.instance.client.auth.currentUser?.id;
     if (userId == null) return const LoginPage();
 
-    // ✅ Check if user exists in student_details
-    final studentProfile = await Supabase.instance.client
+    final supabase = Supabase.instance.client;
+
+    final studentProfile = await supabase
         .from('student_details')
         .select('seen_tutorial')
         .eq('user_id', userId)
@@ -261,8 +249,7 @@ class MyApp extends StatelessWidget {
       return seenTutorial ? const Demopage1() : const TutorialPages();
     }
 
-    // ✅ Otherwise check guard_details
-    final guardProfile = await Supabase.instance.client
+    final guardProfile = await supabase
         .from('guard_details')
         .select('seen_tutorial')
         .eq('user_id', userId)
@@ -273,14 +260,13 @@ class MyApp extends StatelessWidget {
       return seenTutorial ? const GuardMainPage() : const GuardTutorialPages();
     }
 
-    // Fallback
     return const LoginPage();
   }
 
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<Widget>(
-      future: _getHome(),
+      future: _getHomeFuture(),
       builder: (context, snapshot) {
         if (!snapshot.hasData) {
           return const MaterialApp(

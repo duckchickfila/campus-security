@@ -34,6 +34,8 @@ class _MapNavigationPageState extends State<MapNavigationPage> {
   late PolylinePoints polylinePoints;
   final supabase = Supabase.instance.client;
 
+  DateTime? _lastPublishTime; // ✅ track last publish time
+
   @override
   void initState() {
     super.initState();
@@ -63,7 +65,7 @@ class _MapNavigationPageState extends State<MapNavigationPage> {
       _guardLocation = loc;
       _updateMap();
       _updateDistance();
-      _publishGuardLocation();
+      _publishGuardLocation(); // ✅ throttled
     });
   }
 
@@ -71,24 +73,31 @@ class _MapNavigationPageState extends State<MapNavigationPage> {
     if (_guardLocation == null) return;
     final lat = _guardLocation!.latitude;
     final lng = _guardLocation!.longitude;
-    if (lat != null && lng != null) {
-      await supabase.from('guard_locations').upsert({
-        'user_id': widget.guardUserId,
-        'lat': lat,
-        'lng': lng,
-        'timestamp': DateTime.now().toIso8601String(),
-      });
+    if (lat == null || lng == null) return;
 
-      // ✅ also update guard_details with last_updated
-      await supabase
-          .from('guard_details')
-          .update({
-            'last_lat': lat,
-            'last_lng': lng,
-            'last_updated': DateTime.now().toIso8601String(),
-          })
-          .eq('user_id', widget.guardUserId);
+    final now = DateTime.now();
+    if (_lastPublishTime != null &&
+        now.difference(_lastPublishTime!).inMinutes < 5) {
+      // ✅ Skip publishing if last update was less than 5 minutes ago
+      return;
     }
+    _lastPublishTime = now;
+
+    await supabase.from('guard_locations').upsert({
+      'user_id': widget.guardUserId,
+      'lat': lat,
+      'lng': lng,
+      'timestamp': now.toIso8601String(),
+    });
+
+    await supabase
+        .from('guard_details')
+        .update({
+          'last_lat': lat,
+          'last_lng': lng,
+          'last_updated': now.toIso8601String(),
+        })
+        .eq('user_id', widget.guardUserId);
   }
 
   Future<void> _updateMap() async {
@@ -97,7 +106,6 @@ class _MapNavigationPageState extends State<MapNavigationPage> {
     final guardPos = LatLng(_guardLocation!.latitude!, _guardLocation!.longitude!);
     LatLng studentPos = LatLng(widget.studentLat, widget.studentLng);
 
-    // Calculate distance in meters
     final meters = Geolocator.distanceBetween(
       guardPos.latitude,
       guardPos.longitude,
@@ -105,10 +113,9 @@ class _MapNavigationPageState extends State<MapNavigationPage> {
       studentPos.longitude,
     );
 
-    // Nudge student marker if overlapping
     if (meters < 10) {
       studentPos = LatLng(studentPos.latitude + 0.0001, studentPos.longitude);
-      _polylines.clear(); // no route when overlapping
+      _polylines.clear();
     }
 
     _markers = {
@@ -126,7 +133,6 @@ class _MapNavigationPageState extends State<MapNavigationPage> {
       ),
     };
 
-    // Draw route only if distance > ~10m
     if (meters > 10) {
       final result = await polylinePoints.getRouteBetweenCoordinates(
         googleApiKey: _googleApiKey,

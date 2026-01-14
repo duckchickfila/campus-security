@@ -28,6 +28,7 @@ class _ChatPageState extends State<ChatPage> {
   String? studentName;
 
   final ImagePicker _picker = ImagePicker();
+  final ScrollController _scrollController = ScrollController();
 
   @override
   void initState() {
@@ -36,7 +37,7 @@ class _ChatPageState extends State<ChatPage> {
         .from('messages')
         .stream(primaryKey: ['id'])
         .eq('sos_id', widget.sosId)
-        .order('created_at')
+        .order('created_at', ascending: true) // oldest → newest
         .map((rows) => rows);
 
     _fetchNames();
@@ -63,17 +64,40 @@ class _ChatPageState extends State<ChatPage> {
 
   Future<void> _sendMessage({String? content, String? attachmentUrl}) async {
     final userId = _supabase.auth.currentUser?.id;
-    if (userId == null) return;
+    if (userId == null) {
+      print("⚠️ No logged in user, cannot send message");
+      return;
+    }
 
-    await _supabase.from('messages').insert({
-      'sos_id': widget.sosId,
-      'sender_id': userId,
-      'receiver_id': userId == widget.guardId ? widget.studentId : widget.guardId,
-      'content': content ?? '',
-      'attachment_url': attachmentUrl,
-    });
+    if ((content == null || content.trim().isEmpty) && attachmentUrl == null) {
+      print("⚠️ Empty message, not sending");
+      return;
+    }
 
-    _controller.clear();
+    try {
+      final response = await _supabase
+          .from('messages')
+          .insert({
+            'sos_id': widget.sosId,
+            'sender_id': userId,
+            'receiver_id': userId == widget.guardId ? widget.studentId : widget.guardId,
+            'content': content ?? '',
+            'attachment_url': attachmentUrl, // ✅ correct column
+          })
+          .select();
+
+      print("✅ Message insert response: $response");
+      _controller.clear();
+
+      // scroll to bottom after sending
+      Future.delayed(const Duration(milliseconds: 300), () {
+        if (_scrollController.hasClients) {
+          _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
+        }
+      });
+    } catch (e) {
+      print("❌ Failed to send message: $e");
+    }
   }
 
   Future<void> _pickImage(ImageSource source) async {
@@ -83,7 +107,8 @@ class _ChatPageState extends State<ChatPage> {
       final userId = _supabase.auth.currentUser?.id;
       if (userId == null) return;
 
-      final path = 'chat/${widget.sosId}/${DateTime.now().millisecondsSinceEpoch}_${pickedFile.name}';
+      final path =
+          'chat/${widget.sosId}/${DateTime.now().millisecondsSinceEpoch}_${pickedFile.name}';
       await _supabase.storage.from('chat_attachments').upload(path, file);
 
       final publicUrl =
@@ -100,6 +125,11 @@ class _ChatPageState extends State<ChatPage> {
     final content = message['content'] as String?;
     final attachmentUrl = message['attachment_url'] as String?;
 
+    // show sender name
+    final senderId = message['sender_id'] as String?;
+    final senderName =
+        senderId == widget.guardId ? guardName ?? 'Guard' : studentName ?? 'Student';
+
     return Align(
       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
@@ -113,12 +143,22 @@ class _ChatPageState extends State<ChatPage> {
           crossAxisAlignment:
               isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
           children: [
+            Text(
+              senderName,
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                color: isMe ? Colors.white : Colors.black87,
+              ),
+            ),
             if (content != null && content.isNotEmpty)
-              Text(
-                content,
-                style: TextStyle(
-                  color: isMe ? Colors.white : Colors.black87,
-                  fontSize: 16,
+              Padding(
+                padding: const EdgeInsets.only(top: 4.0),
+                child: Text(
+                  content,
+                  style: TextStyle(
+                    color: isMe ? Colors.white : Colors.black87,
+                    fontSize: 16,
+                  ),
                 ),
               ),
             if (attachmentUrl != null)
@@ -163,6 +203,7 @@ class _ChatPageState extends State<ChatPage> {
                 }
                 final messages = snapshot.data!;
                 return ListView.builder(
+                  controller: _scrollController,
                   padding: const EdgeInsets.all(8),
                   itemCount: messages.length,
                   itemBuilder: (context, index) =>
