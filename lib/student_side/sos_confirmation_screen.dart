@@ -2,15 +2,18 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:geocoding/geocoding.dart'; // for reverse geocoding
 import 'student_tracking_page.dart'; // ✅ import your tracking page
+import 'chat_page.dart'; // ✅ new import for chat interface
 
 class SosConfirmationScreen extends StatefulWidget {
   final String sosId;
   final String guardId;
+  final String studentId; // ✅ added
 
   const SosConfirmationScreen({
     super.key,
     required this.sosId,
     required this.guardId,
+    required this.studentId, // ✅ added
   });
 
   @override
@@ -100,6 +103,25 @@ class _SosConfirmationScreenState extends State<SosConfirmationScreen> {
         title: const Text("SOS Submitted"),
         backgroundColor: Colors.red,
         centerTitle: true,
+        actions: [
+          // ✅ Chat icon in AppBar
+          IconButton(
+            icon: const Icon(Icons.chat_bubble, color: Colors.white),
+            tooltip: "Chat with Guard",
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => ChatPage(
+                    sosId: widget.sosId,
+                    guardId: widget.guardId,
+                    studentId: widget.studentId, // ✅ fixed
+                  ),
+                ),
+              );
+            },
+          ),
+        ],
       ),
       body: Center(
         child: Padding(
@@ -157,9 +179,9 @@ class _SosConfirmationScreenState extends State<SosConfirmationScreen> {
                       context,
                       MaterialPageRoute(
                         builder: (_) => StudentTrackingPage(
-                          studentLat: studentLat!,      // ✅ student SOS location
-                          studentLng: studentLng!,      // ✅ student SOS location
-                          guardUserId: widget.guardId,  // ✅ assigned guard
+                          studentLat: studentLat!, // ✅ student SOS location
+                          studentLng: studentLng!, // ✅ student SOS location
+                          guardUserId: widget.guardId, // ✅ assigned guard
                         ),
                       ),
                     );
@@ -176,6 +198,35 @@ class _SosConfirmationScreenState extends State<SosConfirmationScreen> {
                 child: const Text(
                   "Open Map Navigation",
                   style: TextStyle(fontSize: 18, color: Colors.white),
+                ),
+              ),
+              const SizedBox(height: 20),
+              // ✅ Noticeable chat button below
+              ElevatedButton.icon(
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => ChatPage(
+                        sosId: widget.sosId,
+                        guardId: widget.guardId,
+                        studentId: widget.studentId, // ✅ fixed
+                      ),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.chat_bubble, color: Colors.white),
+                label: const Text(
+                  "Chat with Assigned Guard",
+                  style: TextStyle(fontSize: 18, color: Colors.white),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.red,
+                  padding:
+                      const EdgeInsets.symmetric(vertical: 14, horizontal: 32),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
                 ),
               ),
             ],

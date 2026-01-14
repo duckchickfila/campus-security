@@ -5,9 +5,9 @@ import 'package:geocoding/geocoding.dart';
 import 'package:video_player/video_player.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:permission_handler/permission_handler.dart';
-
-// ✅ ADDED
 import 'package:demo_app/guard_side/map_navigation_page.dart';
+import 'package:demo_app/student_side/chat_page.dart';
+import 'resolve_report_page.dart';
 
 class SosReportViewer extends StatefulWidget {
   final String sosId;
@@ -28,6 +28,14 @@ class _SosReportViewerState extends State<SosReportViewer> {
   void initState() {
     super.initState();
     _loadReport();
+  }
+
+  @override
+  void dispose() {
+    debugPrint("🛑 Disposing video controller");
+    _videoController?.pause();
+    _videoController?.dispose();
+    super.dispose();
   }
 
   Future<void> _loadReport() async {
@@ -62,22 +70,19 @@ class _SosReportViewerState extends State<SosReportViewer> {
           debugPrint("👤 student_details row for user_id=$userId: $student");
           _studentDetails = student;
         } catch (e) {
-          debugPrint(
-              "❌ Error fetching student_details for user_id=$userId: $e");
+          debugPrint("❌ Error fetching student_details for user_id=$userId: $e");
         }
       }
 
       final lat = double.tryParse(report['lat']?.toString() ?? '');
       final lng = double.tryParse(report['lng']?.toString() ?? '');
       if (lat != null && lng != null) {
-        debugPrint("🌍 Reverse geocoding lat=$lat, lng=$lng");
         try {
           final placemarks = await placemarkFromCoordinates(lat, lng);
           if (placemarks.isNotEmpty) {
             final place = placemarks.first;
             _address =
                 "${place.street ?? ''}, ${place.locality ?? ''}, ${place.administrativeArea ?? ''}, ${place.country ?? ''}";
-            debugPrint("📍 Resolved address: $_address");
           } else {
             _address = "Lat: $lat, Lng: $lng";
           }
@@ -88,30 +93,39 @@ class _SosReportViewerState extends State<SosReportViewer> {
       }
 
       final videoUrl = report['video_url']?.toString() ?? '';
+      debugPrint("🔗 Video URL: $videoUrl");
+
       if (videoUrl.isNotEmpty) {
-        debugPrint("🎥 Initializing video controller for URL=$videoUrl");
-        _videoController = VideoPlayerController.network(videoUrl)
-          ..initialize().then((_) {
-            debugPrint("✅ Video initialized");
-            setState(() {});
+        try {
+          _videoController = VideoPlayerController.network(videoUrl);
+
+          await _videoController!.initialize().then((_) {
+            debugPrint("✅ Video initialized: duration=${_videoController!.value.duration}");
+            setState(() {
+              // trigger rebuild once initialized
+            });
+            // safer autoplay after init
+            Future.delayed(const Duration(milliseconds: 300), () {
+              if (mounted) {
+                debugPrint("▶️ Starting playback");
+                _videoController!.play();
+              }
+            });
           }).catchError((e) {
             debugPrint("❌ Video initialization error: $e");
           });
+
+          _videoController!.setVolume(1.0);
+        } catch (e) {
+          debugPrint("❌ Error setting up video controller: $e");
+        }
       }
     }
 
     setState(() => _report = report);
   }
 
-  @override
-  void dispose() {
-    _videoController?.dispose();
-    super.dispose();
-  }
-
   Future<void> _makePhoneCall(String number) async {
-    debugPrint("📞 Attempting to dial $number");
-
     var status = await Permission.phone.status;
     if (!status.isGranted) {
       status = await Permission.phone.request();
@@ -121,14 +135,12 @@ class _SosReportViewerState extends State<SosReportViewer> {
       final Uri uri = Uri(scheme: 'tel', path: number);
       try {
         await launchUrl(uri, mode: LaunchMode.externalApplication);
-        debugPrint("✅ Direct call placed to $number");
       } catch (e) {
         debugPrint("❌ Could not place call: $e");
       }
     } else if (status.isDenied) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text("Phone permission is required to place calls")),
+        const SnackBar(content: Text("Phone permission is required to place calls")),
       );
     } else if (status.isPermanentlyDenied) {
       openAppSettings();
@@ -192,73 +204,56 @@ class _SosReportViewerState extends State<SosReportViewer> {
       ],
     );
 
-    if (clickable && onTap != null && value != null && value.isNotEmpty) {
-      return GestureDetector(onTap: onTap, child: content);
-    }
-    return content;
+    return (clickable && onTap != null && value != null && value.isNotEmpty)
+        ? GestureDetector(onTap: onTap, child: content)
+        : content;
   }
 
-  // ✅ Video player widget with controls
   Widget _buildVideoPlayer() {
-    if (_videoController == null || !_videoController!.value.isInitialized) {
-      return const Text("No video available");
-    }
-
-    return Column(
-      children: [
-        AspectRatio(
-          aspectRatio: _videoController!.value.aspectRatio,
-          child: VideoPlayer(_videoController!),
-        ),
-        VideoProgressIndicator(
-          _videoController!,
-          allowScrubbing: true,
-          colors: const VideoProgressColors(
-            playedColor: Colors.red,
-            bufferedColor: Colors.grey,
-            backgroundColor: Colors.black26,
+    if (_videoController != null) {
+      if (_videoController!.value.isInitialized) {
+        return GestureDetector(
+          onTap: () {
+            setState(() {
+              if (_videoController!.value.position >=
+                  _videoController!.value.duration) {
+                _videoController!.seekTo(Duration.zero);
+              }
+              _videoController!.value.isPlaying
+                  ? _videoController!.pause()
+                  : _videoController!.play();
+            });
+          },
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              AspectRatio(
+                aspectRatio: _videoController!.value.aspectRatio,
+                child: VideoPlayer(_videoController!),
+              ),
+              if (!_videoController!.value.isPlaying)
+                const Icon(Icons.play_circle_fill,
+                    size: 100, color: Colors.white),
+            ],
+          ),
+        );
+      } else {
+        return const Center(child: CircularProgressIndicator());
+      }
+    } else {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 16),
+        child: Center(
+          child: Text(
+            "No video available",
+            style: TextStyle(fontSize: 18, color: Colors.grey),
           ),
         ),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            IconButton(
-              icon: const Icon(Icons.replay_10),
-              onPressed: () {
-                final pos = _videoController!.value.position;
-                _videoController!.seekTo(pos - const Duration(seconds: 10));
-              },
-            ),
-            IconButton(
-              icon: Icon(
-                _videoController!.value.isPlaying
-                    ? Icons.pause
-                    : Icons.play_arrow,
-              ),
-              onPressed: () {
-                setState(() {
-                  if (_videoController!.value.isPlaying) {
-                    _videoController!.pause();
-                  } else {
-                    _videoController!.play();
-                  }
-                });
-              },
-            ),
-            IconButton(
-              icon: const Icon(Icons.forward_10),
-              onPressed: () {
-                final pos = _videoController!.value.position;
-                _videoController!.seekTo(pos + const Duration(seconds: 10));
-              },
-            ),
-          ],
-        ),
-      ],
-    );
+      );
+    }
   }
 
-  @override
+ @override
   Widget build(BuildContext context) {
     if (_report == null) {
       return const Scaffold(
@@ -267,30 +262,24 @@ class _SosReportViewerState extends State<SosReportViewer> {
     }
 
     final studentName = _studentDetails?['name']?.toString();
-    final studentEnrollment =
-        _studentDetails?['enrollment_no']?.toString();
-    final studentContact =
-        _studentDetails?['contact_no']?.toString();
-
-    debugPrint(
-        "🔧 Render values -> name=$studentName, enrollment=$studentEnrollment, contact=$studentContact");
+    final studentEnrollment = _studentDetails?['enrollment_no']?.toString();
+    final studentContact = _studentDetails?['contact_no']?.toString();
 
     return Scaffold(
       appBar: const GuardCustomAppBar(),
       body: Container(
         color: Colors.grey[100],
-        child: Padding(
+        child: SingleChildScrollView(
           padding: const EdgeInsets.all(20),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _detailRow(
-                  label: "Student",
-                  value: studentName ??
-                      _report!['student_name']?.toString()),
+                label: "Student",
+                value: studentName ?? _report!['student_name']?.toString(),
+              ),
               const SizedBox(height: 12),
-              _detailRow(
-                  label: "Enrollment No", value: studentEnrollment),
+              _detailRow(label: "Enrollment No", value: studentEnrollment),
               const SizedBox(height: 12),
               _detailRow(
                 label: "Contact No",
@@ -300,73 +289,46 @@ class _SosReportViewerState extends State<SosReportViewer> {
               ),
               const SizedBox(height: 12),
               _detailRow(
-                  label: "Location",
-                  value: _address ??
-                      _report!['location']?.toString()),
+                label: "Location",
+                value: _address ?? _report!['location']?.toString(),
+              ),
               const SizedBox(height: 12),
-              _detailRow(
-                  label: "Status",
-                  value: _report!['status']?.toString()),
-              const SizedBox(height: 20),
+              _detailRow(label: "Status", value: _report!['status']?.toString()),
+              const SizedBox(height: 24),
 
-              if (_videoController != null &&
-                  _videoController!.value.isInitialized)
-                Expanded(
-                  child: Center(
-                    child: AspectRatio(
-                      aspectRatio:
-                          _videoController!.value.aspectRatio,
-                      child: GestureDetector(
-                        onTap: () {
-                          setState(() {
-                            _videoController!.value.isPlaying
-                                ? _videoController!.pause()
-                                : _videoController!.play();
-                          });
-                        },
-                        child: Stack(
-                          alignment: Alignment.center,
-                          children: [
-                            VideoPlayer(_videoController!),
-                            if (!_videoController!.value.isPlaying)
-                              const Icon(Icons.play_circle_fill,
-                                  size: 100, color: Colors.white),
-                          ],
-                        ),
-                      ),
-                    ),
+              // ✅ Video player
+              Center(
+                child: Container(
+                  height: 480,
+                  width: MediaQuery.of(context).size.width * 0.95,
+                  margin: const EdgeInsets.symmetric(vertical: 20),
+                  decoration: BoxDecoration(
+                    color: Colors.black,
+                    borderRadius: BorderRadius.circular(12),
                   ),
-                )
-              else
-                const Expanded(
-                  child: Center(
-                    child: Text("No video available",
-                        style:
-                            TextStyle(fontSize: 18, color: Colors.grey)),
-                  ),
+                  clipBehavior: Clip.hardEdge,
+                  child: _buildVideoPlayer(),
                 ),
+              ),
 
               const SizedBox(height: 30),
               Center(
                 child: Column(
                   children: [
-                    if (_report!['lat'] != null &&
-                        _report!['lng'] != null)
+                    if (_report!['lat'] != null && _report!['lng'] != null)
                       ElevatedButton.icon(
                         onPressed: () {
                           _openMapNavigation(
-                            double.parse(
-                                _report!['lat'].toString()),
-                            double.parse(
-                                _report!['lng'].toString()),
-                            _report!['guard_id'].toString(),
+                            double.parse(_report!['lat'].toString()),
+                            double.parse(_report!['lng'].toString()),
+                            _report!['assigned_guard_id'].toString(),
                           );
                         },
-                        icon: const Icon(Icons.map,
-                            color: Colors.white),
-                        label: const Text("Open Map Navigation",
-                            style: TextStyle(
-                                fontSize: 18, color: Colors.white)),
+                        icon: const Icon(Icons.map, color: Colors.white),
+                        label: const Text(
+                          "Open Map Navigation",
+                          style: TextStyle(fontSize: 18, color: Colors.white),
+                        ),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.red[700],
                           padding: const EdgeInsets.symmetric(
@@ -374,19 +336,76 @@ class _SosReportViewerState extends State<SosReportViewer> {
                         ),
                       ),
                     const SizedBox(height: 16),
+
+                    // ✅ Chat button
                     ElevatedButton.icon(
-                      onPressed: _openResolvePage,
-                      icon: const Icon(Icons.check_circle,
-                          color: Colors.white),
-                      label: const Text("Resolve & Report",
-                          style: TextStyle(
-                              fontSize: 18, color: Colors.white)),
+                      onPressed: () {
+                        final sosId = _report!['id'].toString();
+                        final guardId =
+                            _report!['assigned_guard_id']?.toString() ?? '';
+                        final studentId =
+                            _report!['user_id']?.toString() ?? '';
+
+                        if (sosId.isNotEmpty &&
+                            guardId.isNotEmpty &&
+                            studentId.isNotEmpty) {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => ChatPage(
+                                sosId: sosId,
+                                guardId: guardId,
+                                studentId: studentId,
+                              ),
+                            ),
+                          );
+                        } else {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                                content: Text("Chat cannot be opened — missing IDs")),
+                          );
+                        }
+                      },
+                      icon: const Icon(Icons.chat, color: Colors.white),
+                      label: const Text(
+                        "Open Chat",
+                        style: TextStyle(fontSize: 18, color: Colors.white),
+                      ),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.red[700],
+                        backgroundColor: Colors.orange,
                         padding: const EdgeInsets.symmetric(
                             horizontal: 24, vertical: 12),
                       ),
                     ),
+                    const SizedBox(height: 16),
+
+                    ElevatedButton.icon(
+                    onPressed: () {
+                      if (_report != null) {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => ResolveReportPage(
+                              reportData: _report!, // pass the full SOS report row
+                            ),
+                          ),
+                        );
+                      } else {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text("Report data not available")),
+                        );
+                      }
+                    },
+                    icon: const Icon(Icons.check_circle, color: Colors.white),
+                    label: const Text(
+                      "Resolve & Report",
+                      style: TextStyle(fontSize: 18, color: Colors.white),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.red[700],
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                    ),
+                  ),
                     const SizedBox(height: 24),
                   ],
                 ),

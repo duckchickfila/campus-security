@@ -101,6 +101,7 @@ class _RecordingScreenState extends State<RecordingScreen> {
           String studentName = 'Unknown';
           String enrollmentNumber = 'Unknown';
           String contactNumber = 'Unknown';
+          String studentId = userId ?? 'Unknown'; 
 
           if (userId != null) {
             final profile = await supabase
@@ -142,6 +143,7 @@ class _RecordingScreenState extends State<RecordingScreen> {
                 builder: (_) => SosConfirmationScreen(
                   sosId: sosId,
                   guardId: guardId ?? 'Unknown',
+                  studentId: studentId ?? 'Unknown',
                 ),
               ),
             );

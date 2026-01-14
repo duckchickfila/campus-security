@@ -5,6 +5,7 @@ import 'package:demo_app/student_side/tutorial_pages.dart';
 import 'package:demo_app/guard_side/main_page.dart';
 import 'package:demo_app/guard_side/tutorial_pages.dart';
 import 'package:demo_app/guard_side/sos_report_viewer.dart';   // notifications
+import 'package:demo_app/student_side/chat_page.dart';         // ✅ NEW import
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'soshandler.dart';
 
@@ -41,12 +42,15 @@ void _showNotification(RemoteMessage message) async {
   const NotificationDetails platformDetails =
       NotificationDetails(android: androidDetails);
 
+  // ✅ Decide payload type (SOS vs Chat)
+  final payload = message.data['sosId'] ?? message.data['chatId'];
+
   await flutterLocalNotificationsPlugin.show(
     0,
-    message.notification?.title ?? '🚨 New SOS Alert',
-    message.notification?.body ?? 'Student needs help!',
+    message.notification?.title ?? '🚨 New Alert',
+    message.notification?.body ?? 'You have a new message!',
     platformDetails,
-    payload: message.data['sosId'], // pass sosId for navigation
+    payload: payload,
   );
 }
 
@@ -107,11 +111,29 @@ Future<void> main() async {
     onDidReceiveNotificationResponse: (NotificationResponse response) async {
       final payload = response.payload;
       if (payload != null && payload.isNotEmpty) {
-        navigatorKey.currentState?.push(
-          MaterialPageRoute(
-            builder: (_) => SosReportViewer(sosId: payload),
-          ),
-        );
+        // ✅ Decide navigation based on payload type
+        if (response.payload!.startsWith("chat_")) {
+          final sosId = response.payload!.replaceFirst("chat_", "");
+          // ✅ Extract studentId from payload if available
+          final studentId = response.payload!.split("_").length > 2
+              ? response.payload!.split("_")[2]
+              : "";
+          navigatorKey.currentState?.push(
+            MaterialPageRoute(
+              builder: (_) => ChatPage(
+                sosId: sosId,
+                guardId: Supabase.instance.client.auth.currentUser?.id ?? "",
+                studentId: studentId,
+              ),
+            ),
+          );
+        } else {
+          navigatorKey.currentState?.push(
+            MaterialPageRoute(
+              builder: (_) => SosReportViewer(sosId: payload),
+            ),
+          );
+        }
       }
     },
     onDidReceiveBackgroundNotificationResponse: notificationTapBackground,
@@ -133,10 +155,30 @@ Future<void> main() async {
   // ✅ Handle notification taps when app is in background
   FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
     debugPrint("Background notification tapped");
+
     final sosId = message.data['sosId'];
-    navigatorKey.currentState?.push(
-      MaterialPageRoute(builder: (_) => SosReportViewer(sosId: sosId)),
-    );
+    final chatId = message.data['chatId'];
+    final studentId = message.data['studentId'];
+
+    if (chatId != null && chatId.isNotEmpty) {
+      debugPrint("📦 Navigating to ChatPage with sosId: $chatId");
+      navigatorKey.currentState?.push(
+        MaterialPageRoute(
+          builder: (_) => ChatPage(
+            sosId: chatId,
+            guardId: Supabase.instance.client.auth.currentUser?.id ?? "",
+            studentId: studentId ?? "",
+          ),
+        ),
+      );
+    } else if (sosId != null && sosId.isNotEmpty) {
+      debugPrint("📦 Navigating to SosReportViewer with sosId: $sosId");
+      navigatorKey.currentState?.push(
+        MaterialPageRoute(builder: (_) => SosReportViewer(sosId: sosId)),
+      );
+    } else {
+      debugPrint("⚠️ No valid payload in notification: ${message.data}");
+    }
   });
 
   // ✅ Handle notification when app is opened from terminated state
@@ -144,9 +186,53 @@ Future<void> main() async {
   if (initialMessage != null) {
     debugPrint("🛑 App opened from terminated state via notification");
     final sosId = initialMessage.data['sosId'];
-    navigatorKey.currentState?.push(
-      MaterialPageRoute(builder: (_) => SosReportViewer(sosId: sosId)),
-    );
+    final chatId = initialMessage.data['chatId'];
+    final studentId = initialMessage.data['studentId'];
+
+    if (chatId != null && chatId.isNotEmpty) {
+      navigatorKey.currentState?.push(
+        MaterialPageRoute(
+          builder: (_) => ChatPage(
+            sosId: chatId,
+            guardId: Supabase.instance.client.auth.currentUser?.id ?? "",
+            studentId: studentId ?? "",
+          ),
+        ),
+      );
+    } else if (sosId != null && sosId.isNotEmpty) {
+      navigatorKey.currentState?.push(
+        MaterialPageRoute(builder: (_) => SosReportViewer(sosId: sosId)),
+      );
+    }
+  }
+
+  // ✅ Register FCM token in Supabase (student_details / guard_details)
+  final fcmToken = await FirebaseMessaging.instance.getToken();
+  final userId = Supabase.instance.client.auth.currentUser?.id;
+  if (fcmToken != null && userId != null) {
+    final supabase = Supabase.instance.client;
+
+    // First check if user is a student
+    final studentProfile = await supabase
+        .from('student_details')
+        .select('user_id')
+        .eq('user_id', userId)
+        .maybeSingle();
+
+    if (studentProfile != null) {
+      await supabase
+          .from('student_details')
+          .update({'fcm_token': fcmToken})
+          .eq('user_id', userId);
+      debugPrint("📡 FCM token registered for student $userId");
+    } else {
+      // Otherwise assume guard
+      await supabase
+          .from('guard_details')
+          .update({'fcm_token': fcmToken})
+          .eq('user_id', userId);
+      debugPrint("📡 FCM token registered for guard $userId");
+    }
   }
 
   runApp(MyApp(navigatorKey: navigatorKey));
