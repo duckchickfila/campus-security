@@ -413,6 +413,7 @@ class _SosReportViewerState extends State<SosReportViewer> {
                 ),
               ),
 
+
               const SizedBox(height: 30),
               Center(
                 child: Column(
