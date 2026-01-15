@@ -6,6 +6,10 @@ import 'package:image_picker/image_picker.dart';
 import 'package:path/path.dart' as p;
 import 'package:demo_app/guard_side/custom_appbar.dart';
 import 'package:video_player/video_player.dart';
+import 'package:geocoding/geocoding.dart';
+import 'package:intl/intl.dart';
+import 'package:video_player/video_player.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class GuardReportViewer extends StatefulWidget {
   final Map<String, dynamic> reportData;
@@ -24,6 +28,9 @@ class GuardReportViewer extends StatefulWidget {
 class _GuardReportViewerState extends State<GuardReportViewer> {
   final _formKey = GlobalKey<FormState>();
   final _remarksController = TextEditingController();
+  VideoPlayerController? _videoController; // make it nullable
+  bool _isVideoInitialized = false;
+
   String? selectedStatus;
   List<File> evidenceFiles = [];
 
@@ -40,8 +47,28 @@ class _GuardReportViewerState extends State<GuardReportViewer> {
   void initState() {
     super.initState();
     selectedStatus = widget.reportData['status'] ?? 'pending';
+
+    // Debug prints
     print("Guard UID: ${_supabase.auth.currentUser?.id}");
     print("Current session: ${_supabase.auth.currentSession}");
+
+    // Initialize video controller if video_url exists
+    final videoUrl = widget.reportData['video_url'];
+    if (videoUrl != null && videoUrl.isNotEmpty) {
+      _videoController = VideoPlayerController.networkUrl(Uri.parse(videoUrl))
+        ..initialize().then((_) {
+          setState(() {
+            _isVideoInitialized = true;
+          });
+        });
+    }
+  }
+
+  @override
+  void dispose() {
+    _remarksController.dispose();
+    _videoController?.dispose(); // dispose safely if initialized
+    super.dispose();
   }
 
   Future<void> _pickEvidence() async {
@@ -148,19 +175,30 @@ class _GuardReportViewerState extends State<GuardReportViewer> {
   }
 
   Widget _buildReadOnlyField(
-    String label, String? value, TextStyle labelStyle, TextStyle valueStyle) {
-  return Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Text(label, style: labelStyle),
-      const SizedBox(height: 6),
-      Text(
-        _formatDate(value), // ✅ format date nicely
-        style: valueStyle,
-      ),
-    ],
-  );
-}
+    String label,
+    String? value,
+    TextStyle labelStyle,
+    TextStyle valueStyle, {
+    bool isDate = false,
+  }) {
+    String displayValue = value ?? '';
+
+    if (isDate && value != null) {
+      final parsed = DateTime.tryParse(value);
+      if (parsed != null) {
+        displayValue = DateFormat('dd-MM-yyyy').format(parsed);
+      }
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: labelStyle),
+        const SizedBox(height: 6),
+        Text(displayValue, style: valueStyle),
+      ],
+    );
+  }
 
 /// ✅ Helper to format ISO date strings
 String _formatDate(String? raw) {
@@ -230,8 +268,50 @@ String _formatDate(String? raw) {
     return const Center(child: Icon(Icons.videocam, size: 40, color: Colors.blue));
   }
 
-  @override
+  // Inside your GuardReportViewerState class
+  Widget _buildVideoPlayer() {
+    final videoUrl = widget.reportData['video_url']?.toString() ?? '';
+
+    if (_videoController == null) {
+      return const Text("No video available");
+    }
+
+    if (_videoController!.value.hasError) {
+      return Column(
+        children: [
+          Text("Video error: ${_videoController!.value.errorDescription}"),
+        ],
+      );
+    }
+
+    if (!_videoController!.value.isInitialized) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          if (_videoController!.value.position >= _videoController!.value.duration) {
+            _videoController!.seekTo(Duration.zero);
+            _videoController!.play();
+          } else if (_videoController!.value.isPlaying) {
+            _videoController!.pause();
+          } else {
+            _videoController!.play();
+          }
+        });
+      },
+      child: AspectRatio(
+        aspectRatio: _videoController!.value.aspectRatio,
+        child: VideoPlayer(_videoController!),
+      ),
+    );
+  }
+
+ @override
   Widget build(BuildContext context) {
+    final studentContact = widget.reportData['contact_number']?.toString();
+
     const labelStyle = TextStyle(
       fontSize: 20,
       fontFamily: 'Inter',
@@ -254,7 +334,8 @@ String _formatDate(String? raw) {
     );
 
     final status = widget.reportData['status'] ?? 'pending';
-
+    print("GuardReportViewer reportData: ${widget.reportData}");
+    print("Contact number field: ${widget.reportData['contact_number']}");
     return Scaffold(
       appBar: const GuardCustomAppBar(),
       body: SafeArea(
@@ -273,9 +354,13 @@ String _formatDate(String? raw) {
                       color: status == 'resolved' ? Colors.green : Colors.red,
                     ),
                     const SizedBox(width: 8),
-                    Text("Status: $status",
-                        style: const TextStyle(
-                            fontSize: 20, fontWeight: FontWeight.bold)),
+                    Text(
+                      "Status: $status",
+                      style: const TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                   ],
                 ),
                 const SizedBox(height: 12),
@@ -300,22 +385,166 @@ String _formatDate(String? raw) {
                     ),
                   ),
 
-                // ✅ Non-editable fields
-                if (widget.source == 'sos') ...[
-                  _buildReadOnlyField('Student Name', widget.reportData['student_name'], labelStyle, valueStyle),
+                // SOS reports: resolved
+                if (widget.source == 'sos' && status == 'resolved') ...[
+                  _buildReadOnlyField('Student Name',
+                      widget.reportData['student_name'] ?? '', labelStyle, valueStyle),
                   const SizedBox(height: 20),
-                  _buildReadOnlyField('Enrollment No', widget.reportData['enrollment_number'], labelStyle, valueStyle),
+                  _buildReadOnlyField('Enrollment No',
+                      widget.reportData['enrollment_number'] ?? '', labelStyle, valueStyle),
                   const SizedBox(height: 20),
-                  _buildReadOnlyField('Contact No', widget.reportData['contact_number'], labelStyle, valueStyle),
+
+                  // Contact number: always bind from schema
+                  _buildReadOnlyField(
+                    'Contact No',
+                    (widget.reportData['contact_number'] != null &&
+                            widget.reportData['contact_number'].toString().isNotEmpty)
+                        ? widget.reportData['contact_number'].toString()
+                        : 'N/A',
+                    labelStyle,
+                    valueStyle,
+                  ),
                   const SizedBox(height: 20),
-                  _buildReadOnlyField('Location', widget.reportData['location'], labelStyle, valueStyle),
+
+                  // Reverse-geocode lat/lng into readable address
+                  FutureBuilder<List<Placemark>>(
+                    future: placemarkFromCoordinates(
+                      double.tryParse(widget.reportData['lat']?.toString() ?? '0') ?? 0,
+                      double.tryParse(widget.reportData['lng']?.toString() ?? '0') ?? 0,
+                    ),
+                    builder: (context, snapshot) {
+                      String locationText = widget.reportData['location'] ?? '';
+                      if (snapshot.hasData && snapshot.data!.isNotEmpty) {
+                        final place = snapshot.data!.first;
+                        locationText =
+                            "${place.locality}, ${place.subAdministrativeArea}, ${place.administrativeArea}, ${place.country}";
+                      }
+                      return _buildReadOnlyField(
+                          'Location', locationText, labelStyle, valueStyle);
+                    },
+                  ),
                   const SizedBox(height: 20),
-                  _buildReadOnlyField('Created At', widget.reportData['created_at']?.toString(), labelStyle, valueStyle),
+
+                  _buildReadOnlyField(
+                    'Created At',
+                    widget.reportData['created_at'] != null
+                        ? DateFormat('dd-MM-yyyy')
+                            .format(DateTime.parse(widget.reportData['created_at']))
+                        : '',
+                    labelStyle,
+                    valueStyle,
+                  ),
                   const SizedBox(height: 20),
-                ] else ...[
-                  _buildReadOnlyField('Type', widget.reportData['type'], labelStyle, valueStyle),
+
+                  // Video preview
+                  if (widget.reportData['video_url'] != null) ...[
+                    const Text('Evidence Video:', style: labelStyle),
+                    const SizedBox(height: 8),
+                    Container(
+                      width: MediaQuery.of(context).size.width * 0.95,
+                      margin: const EdgeInsets.symmetric(vertical: 20),
+                      decoration: BoxDecoration(
+                        color: Colors.black,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      clipBehavior: Clip.hardEdge,
+                      child: _buildVideoPlayer(),
+                    ),
+                    const SizedBox(height: 20),
+                  ],
+
+                  if (widget.reportData['guard_attachments'] != null) ...[
+                    const Text('Guard Attachments:', style: labelStyle),
+                    const SizedBox(height: 8),
+                    _buildAttachmentPreviews(widget.reportData['guard_attachments']),
+                    const SizedBox(height: 20),
+                  ],
+
+                  const Text('Remarks:', style: labelStyle),
+                  const SizedBox(height: 8),
+                  Text(widget.reportData['resolution_remarks'] ?? 'No remarks',
+                      style: valueStyle),
+                ]
+
+                // SOS reports: pending
+                else if (widget.source == 'sos') ...[
+                  _buildReadOnlyField('Student Name', widget.reportData['student_name'],
+                      labelStyle, valueStyle),
                   const SizedBox(height: 20),
-                  _buildReadOnlyField('Location', widget.reportData['location'], labelStyle, valueStyle),
+                  _buildReadOnlyField('Enrollment No',
+                      widget.reportData['enrollment_number'], labelStyle, valueStyle),
+                  const SizedBox(height: 20),
+                  _buildReadOnlyField('Contact No', widget.reportData['contact_number'],
+                      labelStyle, valueStyle),
+                  const SizedBox(height: 20),
+                  _buildReadOnlyField(
+                      'Location', widget.reportData['location'], labelStyle, valueStyle),
+                  const SizedBox(height: 20),
+                  _buildReadOnlyField(
+                    'Created At',
+                    widget.reportData['created_at'] != null
+                        ? DateFormat('dd-MM-yyyy')
+                            .format(DateTime.parse(widget.reportData['created_at']))
+                        : '',
+                    labelStyle,
+                    valueStyle,
+                  ),
+                  const SizedBox(height: 20),
+
+                  if (widget.reportData['video_url'] != null) ...[
+                    const Text('Evidence Video:', style: labelStyle),
+                    const SizedBox(height: 8),
+                    AspectRatio(
+                      aspectRatio: _videoController != null &&
+                              _videoController!.value.isInitialized
+                          ? _videoController!.value.aspectRatio
+                          : 16 / 9,
+                      child: _videoController != null &&
+                              _videoController!.value.isInitialized
+                          ? Stack(
+                              alignment: Alignment.bottomCenter,
+                              children: [
+                                VideoPlayer(_videoController!),
+                                VideoProgressIndicator(_videoController!,
+                                    allowScrubbing: true),
+                                Align(
+                                  alignment: Alignment.center,
+                                  child: IconButton(
+                                    icon: Icon(
+                                      _videoController!.value.isPlaying
+                                          ? Icons.pause_circle
+                                          : Icons.play_circle,
+                                      size: 48,
+                                      color: Colors.white,
+                                    ),
+                                    onPressed: () {
+                                      setState(() {
+                                        _videoController!.value.isPlaying
+                                            ? _videoController!.pause()
+                                            : _videoController!.play();
+                                      });
+                                    },
+                                  ),
+                                ),
+                              ],
+                            )
+                          : const Center(child: CircularProgressIndicator()),
+                    ),
+                    const SizedBox(height: 20),
+                  ],
+
+                  const Text('Guard Attachments:', style: labelStyle),
+                  const SizedBox(height: 8),
+                  _buildAttachmentPreviews(widget.reportData['guard_attachments']),
+                ]
+
+                // Normal reports
+                else ...[
+                  _buildReadOnlyField(
+                      'Type', widget.reportData['type'], labelStyle, valueStyle),
+                  const SizedBox(height: 20),
+                  _buildReadOnlyField(
+                      'Location', widget.reportData['location'], labelStyle, valueStyle),
                   const SizedBox(height: 20),
                   _buildReadOnlyField(
                     'Date',
@@ -327,164 +556,12 @@ String _formatDate(String? raw) {
                     valueStyle,
                   ),
                   const SizedBox(height: 20),
-                  _buildReadOnlyField('Details of Incident', widget.reportData['details'], labelStyle, valueStyle),
+                  _buildReadOnlyField('Details of Incident',
+                      widget.reportData['details'], labelStyle, valueStyle),
                   const SizedBox(height: 20),
-                ],
-
-                // ✅ Evidence video for SOS
-                if (widget.source == 'sos' && widget.reportData['video_url'] != null) ...[
-                  const Text('Evidence Video:', style: labelStyle),
+                  const Text('Attachments:', style: labelStyle),
                   const SizedBox(height: 8),
-                  AspectRatio(
-                    aspectRatio: 16 / 9,
-                    child: VideoPlayer(
-                      VideoPlayerController.networkUrl(Uri.parse(widget.reportData['video_url']))
-                        ..initialize().then((_) {
-                          setState(() {});
-                        }),
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                ],
-
-                const Text('Attachments:', style: labelStyle),
-                const SizedBox(height: 8),
-                _buildAttachmentPreviews(
-                  widget.source == 'sos'
-                      ? widget.reportData['guard_attachments']
-                      : widget.reportData['attachments'],
-                ),
-
-                const SizedBox(height: 28),
-                const Divider(),
-                const SizedBox(height: 12),
-
-                // Guard Action section only if not already resolved
-                if (status != 'resolved') ...[
-                  const Text('Guard Action', style: labelStyle),
-                  const SizedBox(height: 12),
-
-                  DropdownButtonFormField<String>(
-                    value: selectedStatus,
-                    items: statuses
-                        .map((s) => DropdownMenuItem(
-                              value: s,
-                              child: Text(s, style: inputTextStyle),
-                            ))
-                        .toList(),
-                    onChanged: (val) => setState(() => selectedStatus = val),
-                    decoration: InputDecoration(
-                      labelText: 'Update Status',
-                      labelStyle: labelStyle,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                    ),
-                    validator: (val) => val == null ? 'Please select a status' : null,
-                  ),
-
-                  const SizedBox(height: 20),
-
-                  // Show Save Status button for any status except pending and resolved
-                  if (selectedStatus != null &&
-                      selectedStatus != 'pending' &&
-                      selectedStatus != 'resolved') ...[
-                    Center(
-                      child: SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton(
-                          style: ElevatedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            textStyle: const TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          onPressed: _updateStatus,
-                          child: const Text('Save Status'),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-                  ],
-
-                  // Show remarks + evidence + submit only when status = resolved (selected, not already resolved)
-                  if (selectedStatus == 'resolved') ...[
-                    TextFormField(
-                      controller: _remarksController,
-                      maxLines: 3,
-                      decoration: InputDecoration(
-                        labelText: 'Remarks',
-                        labelStyle: labelStyle,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                      ),
-                      validator: (v) => v == null || v.trim().isEmpty ? 'Required' : null,
-                    ),
-                    const SizedBox(height: 12),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        ElevatedButton.icon(
-                          icon: const Icon(Icons.attach_file),
-                          label: const Text('Add Evidence'),
-                          onPressed: _pickEvidence,
-                        ),
-                        ElevatedButton.icon(
-                          icon: const Icon(Icons.videocam),
-                          label: const Text('Add Video'),
-                          onPressed: _pickVideo,
-                        ),
-                        if (evidenceFiles.isNotEmpty)
-                          ...evidenceFiles.map((f) => Container(
-                                width: 90,
-                                height: 90,
-                                decoration: BoxDecoration(
-                                  border: Border.all(color: Colors.grey),
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                clipBehavior: Clip.antiAlias,
-                                child: _previewLocalFile(f),
-                              )),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    Center(
-                      child: SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton(
-                          style: ElevatedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            textStyle: const TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          onPressed: _updateStatus,
-                          child: const Text('Submit Remark'),
-                        ),
-                      ),
-                    ),
-                  ],
-                ],
-
-                // If already resolved, show remarks + attachments read-only
-                if (status == 'resolved') ...[
-                  const SizedBox(height: 20),
-                  const Text('Remarks:', style: labelStyle),
-                  const SizedBox(height: 8),
-                  Text(widget.reportData['remarks'] ?? 'No remarks', style: valueStyle),
-                  const SizedBox(height: 20),
-
-                  const Text('Evidence:', style: labelStyle),
-                  const SizedBox(height: 8),
-                  _buildAttachmentPreviews(
-                    widget.source == 'sos'
-                        ? widget.reportData['guard_attachments']
-                        : widget.reportData['attachments'],
-                  ),
+                  _buildAttachmentPreviews(widget.reportData['attachments']),
                 ],
               ],
             ),

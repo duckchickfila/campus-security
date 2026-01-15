@@ -250,7 +250,10 @@ class _GuardMainPageState extends State<GuardMainPage> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => SosReportViewer(sosId: sosData['id']),
+        builder: (_) => GuardReportViewer(
+          reportData: sosData,
+          source: 'sos',
+        ),
       ),
     ).then((_) {
       _loadSosReports(); // refresh after returning
@@ -570,6 +573,7 @@ class _GuardMainPageState extends State<GuardMainPage> {
       ],
     );
   }
+  
 
   @override
   Widget build(BuildContext context) {
