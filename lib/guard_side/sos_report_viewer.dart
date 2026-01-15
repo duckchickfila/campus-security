@@ -8,6 +8,9 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:demo_app/guard_side/map_navigation_page.dart';
 import 'package:demo_app/student_side/chat_page.dart';
 import 'resolve_report_page.dart';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import 'dart:async';
 
 class SosReportViewer extends StatefulWidget {
   final String sosId;
@@ -24,12 +27,42 @@ class _SosReportViewerState extends State<SosReportViewer> {
   String? _address;
   VideoPlayerController? _videoController;
   bool _videoInitError = false; // <-- add this
+  Timer? _pollingTimer;
 
   @override
   void initState() {
     super.initState();
     _loadReport();
   }
+
+  void _startVideoReadyPolling() {
+  // Poll every 5 seconds
+  _pollingTimer = Timer.periodic(const Duration(seconds: 5), (timer) async {
+    if (_report == null) return;
+
+    try {
+      final updatedReport = await _supabase
+          .from('sos_reports')
+          .select('video_url, video_ready')
+          .eq('id', widget.sosId)
+          .maybeSingle();
+
+      if (updatedReport != null && updatedReport['video_ready'] == true) {
+        debugPrint("✅ Video is now ready, stopping polling");
+        timer.cancel();
+        _report = {...?_report, ...updatedReport}; // merge updated fields
+        final videoUrl = updatedReport['video_url']?.toString() ?? '';
+        if (videoUrl.isNotEmpty) {
+          await _setupVideoController(videoUrl);
+        }
+      } else {
+        debugPrint("⏳ Video not ready yet, polling again...");
+      }
+    } catch (e) {
+      debugPrint("💥 Error polling video_ready: $e");
+    }
+  });
+}
 
   // Add this helper inside _SosReportViewerState
   Future<void> _openExternalPlayer(String videoUrl) async {
@@ -58,7 +91,32 @@ class _SosReportViewerState extends State<SosReportViewer> {
     _videoController?.pause();
     _videoController?.dispose();
     super.dispose();
+    _pollingTimer?.cancel();
   }
+
+  // Add inside _SosReportViewerState
+  Future<void> _checkVideoReady(int sosId, String videoUrl) async {
+    final functionUrl = 'https://pvqkkfmzdjquqjxabzur.supabase.co/functions/v1/check-video-ready'; // replace with your deployed Edge Function URL
+    try {
+      final response = await http.post(
+        Uri.parse(functionUrl),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'sosId': sosId, 'videoUrl': videoUrl}),
+      );
+
+      if (response.statusCode == 200) {
+        debugPrint("✅ Video marked ready for streaming");
+      } else if (response.statusCode == 202) {
+        debugPrint("⏳ Video not ready yet, retry later");
+        // Optionally: retry after a few seconds if needed
+      } else {
+        debugPrint("❌ Error checking video readiness: ${response.body}");
+      }
+    } catch (e) {
+      debugPrint("💥 Exception calling checkVideoReady: $e");
+    }
+  }
+
 
   void _onVideoChanged() {
     if (!mounted || _videoController == null) return;
@@ -128,11 +186,13 @@ class _SosReportViewerState extends State<SosReportViewer> {
     Map<String, dynamic>? report;
     try {
       report = await _supabase
-          .from('sos_reports')
-          .select(
-              'id, user_id, student_name, enrollment_number, contact_number, location, lat, lng, status, video_url, assigned_guard_id')
-          .eq('id', widget.sosId)
-          .maybeSingle();
+        .from('sos_reports')
+        .select(
+            'id, user_id, student_name, enrollment_number, contact_number, location, lat, lng, status, video_url, assigned_guard_id, video_ready')
+        .eq('id', widget.sosId)
+        .eq('video_ready', true) // ✅ only get ready videos
+        .maybeSingle();
+
       debugPrint("📄 sos_reports row: $report");
     } catch (e) {
       debugPrint("❌ Error fetching sos_reports: $e");
@@ -176,15 +236,31 @@ class _SosReportViewerState extends State<SosReportViewer> {
         }
       }
 
-      final videoUrl = report['video_url']?.toString() ?? '';
+      final videoUrl = report?['video_url']?.toString() ?? '';
       debugPrint("🔗 Video URL: $videoUrl");
 
-      if (videoUrl.isNotEmpty) {
+      if (videoUrl.isNotEmpty && (report?['video_ready'] ?? false)) {
+        // Video is ready → initialize controller
         await _setupVideoController(videoUrl);
+      } else if (videoUrl.isNotEmpty) {
+        // Video exists but not ready → show placeholder/snackbar
+        debugPrint("⏳ Video not ready yet, showing placeholder");
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Video is still processing…")),
+        );
+
+        // Optional: start polling automatically
+        _startVideoReadyPolling();
       }
+
+    }
+    setState(() => _report = report);
+    // Only start polling if video exists but is not ready
+    if ((_report?['video_url']?.toString().isNotEmpty ?? false) &&
+        (_report?['video_ready'] ?? false) == false) {
+      _startVideoReadyPolling();
     }
 
-    setState(() => _report = report);
   }
 
   Future<void> _makePhoneCall(String number) async {

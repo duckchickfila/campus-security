@@ -6,9 +6,10 @@ import 'dart:math'; // ✅ for Haversine formula
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
-
 import 'demo_page.dart'; // for navigation back to Demopage1
 import 'sos_confirmation_screen.dart'; // new confirmation screen
+import 'package:vibration/vibration.dart';
+
 
 class RecordingScreen extends StatefulWidget {
   const RecordingScreen({super.key});
@@ -68,6 +69,10 @@ class _RecordingScreenState extends State<RecordingScreen> {
   }
 
   Future<void> _startSOS() async {
+    if (await Vibration.hasVibrator() ?? false) {
+      Vibration.vibrate(duration: 500);
+    }
+
     try {
       Position position = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
@@ -101,7 +106,7 @@ class _RecordingScreenState extends State<RecordingScreen> {
           String studentName = 'Unknown';
           String enrollmentNumber = 'Unknown';
           String contactNumber = 'Unknown';
-          String studentId = userId ?? 'Unknown'; 
+          String studentId = userId ?? 'Unknown';
 
           if (userId != null) {
             final profile = await supabase
@@ -117,7 +122,6 @@ class _RecordingScreenState extends State<RecordingScreen> {
             }
           }
 
-          // ✅ Insert SOS report with correct mapping
           final inserted = await supabase.from('sos_reports').insert({
             'user_id': userId,
             'student_name': studentName,
@@ -133,7 +137,6 @@ class _RecordingScreenState extends State<RecordingScreen> {
 
           final sosId = inserted['id'].toString();
 
-          // ✅ Assign nearest guard automatically
           final guardId = await _assignNearestGuard(sosId, lat, lng);
 
           if (mounted) {
@@ -143,7 +146,7 @@ class _RecordingScreenState extends State<RecordingScreen> {
                 builder: (_) => SosConfirmationScreen(
                   sosId: sosId,
                   guardId: guardId ?? 'Unknown',
-                  studentId: studentId ?? 'Unknown',
+                  studentId: studentId,
                 ),
               ),
             );

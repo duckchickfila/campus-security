@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'recording_screen.dart';
@@ -7,6 +8,7 @@ import 'submit_report_page.dart';
 import 'resolved_report_viewer.dart';
 import 'sos_confirmation_screen.dart';
 import 'package:demo_app/student_side/resolved_sos_viewer.dart';
+
 
 class Demopage1 extends StatefulWidget {
   const Demopage1({super.key});
@@ -112,9 +114,9 @@ class Demopage1 extends StatefulWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  Text(title, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 6),
-                  Text("$label: $dateText", style: const TextStyle(fontSize: 14)),
+                  Text("$label: $dateText", style: const TextStyle(fontSize: 18)),
                 ],
               ),
             ),
@@ -127,16 +129,19 @@ class Demopage1 extends StatefulWidget {
       return Scaffold(
         backgroundColor: Colors.white,
         appBar: const CustomAppBar(),
-        body: Padding(
+        body: SingleChildScrollView(
           padding: const EdgeInsets.all(16.0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               const SizedBox(height: 20),
+
               // SOS Button
               Center(
                 child: ElevatedButton(
                   onPressed: () async {
+                    HapticFeedback.heavyImpact();
+
                     final statuses = await [
                       Permission.camera,
                       Permission.microphone,
@@ -149,13 +154,16 @@ class Demopage1 extends StatefulWidget {
                       Navigator.push(
                         context,
                         MaterialPageRoute(
-                            builder: (_) => const RecordingScreen()),
+                          builder: (_) => const RecordingScreen(),
+                        ),
                       );
                     } else {
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(
-                            content: Text(
-                                'Camera, mic & location permissions required')),
+                          content: Text(
+                            'Camera, mic & location permissions required',
+                          ),
+                        ),
                       );
                     }
                   },
@@ -176,7 +184,9 @@ class Demopage1 extends StatefulWidget {
                   ),
                 ),
               ),
+
               const SizedBox(height: 24),
+
               // Report Button
               ElevatedButton(
                 onPressed: () {
@@ -199,159 +209,157 @@ class Demopage1 extends StatefulWidget {
                 child: const Text(
                   '+ Report',
                   style: TextStyle(
-                      fontSize: 28,
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold),
+                    fontSize: 28,
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ),
-              const SizedBox(height: 24),
-              Expanded(
-                child: StreamBuilder<List<Map<String, dynamic>>>(
-                  stream: _reportsStream,
-                  builder: (context, snapshot) {
-                    if (!snapshot.hasData) {
-                      return const Center(child: CircularProgressIndicator());
-                    }
-                    if (snapshot.hasError) {
-                      return Center(child: Text("Error: ${snapshot.error.toString()}"));
-                    }
-                    final reports = snapshot.data ?? [];
-                    if (reports.isEmpty) {
-                      return const Center(child: Text("No reports found"));
-                    }
 
-                    // Separate resolved and submitted (non-resolved)
-                    final resolvedReports =
-                        reports.where((r) => r['status'] == 'resolved').toList();
-                    final submittedReports =
-                        reports.where((r) => r['status'] != 'resolved').toList();
+              const SizedBox(height: 32),
 
-                    return SingleChildScrollView(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          // ✅ Resolved Reports Section
-                          const Text(
-                            'Resolved Reports',
-                            style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-                          ),
-                          const SizedBox(height: 12),
+              // NORMAL REPORTS
+              StreamBuilder<List<Map<String, dynamic>>>(
+                stream: _reportsStream,
+                builder: (context, snapshot) {
+                  if (!snapshot.hasData) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  if (snapshot.hasError) {
+                    return Center(
+                        child: Text("Error: ${snapshot.error.toString()}"));
+                  }
 
-                          if (resolvedReports.isEmpty)
-                            const Center(
-                              child: Text(
-                                "No resolved reports",
-                                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-                              ),
-                            )
-                          else
-                            ListView.separated(
-                              shrinkWrap: true,
-                              physics: const NeverScrollableScrollPhysics(),
-                              itemCount: resolvedReports.length,
-                              separatorBuilder: (_, __) => const SizedBox(height: 12),
-                              itemBuilder: (context, index) {
-                                final report = resolvedReports[index];
-                                final lastEdited =
-                                    report['updated_at'] ?? report['date_submitted'];
-                                final isEdited = report['updated_at'] != null;
-                                final label = isEdited ? "Last Edited On" : "Submitted On";
+                  final reports = snapshot.data ?? [];
+                  final resolvedReports =
+                      reports.where((r) => r['status'] == 'resolved').toList();
+                  final submittedReports =
+                      reports.where((r) => r['status'] != 'resolved').toList();
 
-                                return GestureDetector(
-                                  onTap: () async {
-                                    final reportId = report['id'];
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Resolved Reports
+                      const Text(
+                        'Resolved Reports',
+                        style:
+                            TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 12),
 
-                                    // 🔄 Fetch report with guard_actions joined
-                                    final reportWithActions = await Supabase.instance.client
+                      if (resolvedReports.isEmpty)
+                        const Center(child: Text("No resolved reports"))
+                      else
+                        ListView.separated(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          itemCount: resolvedReports.length,
+                          separatorBuilder: (_, __) =>
+                              const SizedBox(height: 12),
+                          itemBuilder: (context, index) {
+                            final report = resolvedReports[index];
+                            final lastEdited =
+                                report['updated_at'] ?? report['date_submitted'];
+                            final isEdited = report['updated_at'] != null;
+                            final label =
+                                isEdited ? "Last Edited On" : "Submitted On";
+
+                            return GestureDetector(
+                              onTap: () async {
+                                final reportId = report['id'];
+
+                                final reportWithActions =
+                                    await Supabase.instance.client
                                         .from('normal_reports')
                                         .select('*, guard_actions(*)')
                                         .eq('id', reportId)
                                         .single();
 
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute(
-                                        builder: (_) =>
-                                            ResolvedReportViewer(reportData: reportWithActions),
-                                      ),
-                                    );
-                                  },
-                                  child: _buildReportCard(
-                                    type: report['type'],
-                                    date: lastEdited.toString().split('T')[0],
-                                    label: label,
-                                    color: const Color.fromARGB(255, 200, 255, 200),
-                                    iconWidget: const Icon(Icons.check_circle,
-                                        color: Colors.green, size: 28),
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => ResolvedReportViewer(
+                                        reportData: reportWithActions),
                                   ),
                                 );
                               },
-                            ),
-                          const SizedBox(height: 24),
-
-                          // ✅ Reports Submitted Section (non-resolved only)
-                          const Text(
-                            'Reports Submitted',
-                            style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-                          ),
-                          const SizedBox(height: 12),
-
-                          if (submittedReports.isEmpty)
-                            const Center(
-                              child: Text(
-                                "No unresolved reports",
-                                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+                              child: _buildReportCard(
+                                type: report['type'],
+                                date:
+                                    lastEdited.toString().split('T')[0],
+                                label: label,
+                                color:
+                                    const Color.fromARGB(255, 200, 255, 200),
+                                iconWidget: const Icon(Icons.check_circle,
+                                    color: Colors.green, size: 28),
                               ),
-                            )
-                          else
-                            ListView.separated(
-                              shrinkWrap: true,
-                              physics: const NeverScrollableScrollPhysics(),
-                              itemCount: submittedReports.length,
-                              separatorBuilder: (_, __) => const SizedBox(height: 12),
-                              itemBuilder: (context, index) {
-                                final report = submittedReports[index];
-                                final status = report['status'];
-                                final iconWidget = const Icon(Icons.access_time,
-                                    color: Colors.red, size: 28);
+                            );
+                          },
+                        ),
 
-                                final lastEdited =
-                                    report['updated_at'] ?? report['date_submitted'];
-                                final isEdited = report['updated_at'] != null;
-                                final label = isEdited ? "Last Edited On" : "Submitted On";
+                      const SizedBox(height: 24),
 
-                                return GestureDetector(
-                                  onTap: () {
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute(
-                                        builder: (_) => SubmitReportPage(
-                                          reportData: report,
-                                          isEditable: status == 'pending',
-                                        ),
-                                      ),
-                                    );
-                                  },
-                                  child: _buildReportCard(
-                                    type: report['type'],
-                                    date: lastEdited.toString().split('T')[0],
-                                    label: label,
-                                    color: const Color.fromARGB(255, 255, 220, 220),
-                                    iconWidget: iconWidget,
+                      // Submitted Reports
+                      const Text(
+                        'Reports Submitted',
+                        style:
+                            TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 12),
+
+                      if (submittedReports.isEmpty)
+                        const Center(child: Text("No unresolved reports"))
+                      else
+                        ListView.separated(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          itemCount: submittedReports.length,
+                          separatorBuilder: (_, __) =>
+                              const SizedBox(height: 12),
+                          itemBuilder: (context, index) {
+                            final report = submittedReports[index];
+                            final status = report['status'];
+
+                            final lastEdited =
+                                report['updated_at'] ?? report['date_submitted'];
+                            final isEdited = report['updated_at'] != null;
+                            final label =
+                                isEdited ? "Last Edited On" : "Submitted On";
+
+                            return GestureDetector(
+                              onTap: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => SubmitReportPage(
+                                      reportData: report,
+                                      isEditable: status == 'pending',
+                                    ),
                                   ),
                                 );
                               },
-                            ),
-                        ],
-                      ),
-                    );
-                  },
-                ),
+                              child: _buildReportCard(
+                                type: report['type'],
+                                date:
+                                    lastEdited.toString().split('T')[0],
+                                label: label,
+                                color:
+                                    const Color.fromARGB(255, 255, 220, 220),
+                                iconWidget: const Icon(Icons.access_time,
+                                    color: Colors.red, size: 28),
+                              ),
+                            );
+                          },
+                        ),
+                    ],
+                  );
+                },
               ),
-              
-              Expanded(
-              child: StreamBuilder<List<Map<String, dynamic>>>(
+
+              const SizedBox(height: 32),
+
+              // SOS REPORTS
+              StreamBuilder<List<Map<String, dynamic>>>(
                 stream: _sosReportsStream,
                 builder: (context, snapshot) {
                   if (!snapshot.hasData) {
@@ -362,109 +370,113 @@ class Demopage1 extends StatefulWidget {
                   }
 
                   final sos = snapshot.data ?? [];
-                  if (sos.isEmpty) {
-                    return const Center(child: Text("No SOS reports found"));
-                  }
-
-                  // Categorize by resolution_status
-                  final pendingSos = sos.where((r) => r['resolution_status'] == null).toList();
+                  final pendingSos =
+                      sos.where((r) => r['resolution_status'] == null).toList();
                   final historySos = sos.where((r) {
                     final rs = (r['resolution_status'] ?? '').toString();
                     return rs == 'resolved' || rs == 'false_alarm';
                   }).toList();
 
-                  return SingleChildScrollView(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // ✅ Pending SOS Section
-                        const Text('Pending SOS', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-                        const SizedBox(height: 12),
-                        if (pendingSos.isEmpty)
-                          const Center(
-                            child: Text("No pending SOS", style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
-                          )
-                        else
-                          ListView.separated(
-                            shrinkWrap: true,
-                            physics: const NeverScrollableScrollPhysics(),
-                            itemCount: pendingSos.length,
-                            separatorBuilder: (_, __) => const SizedBox(height: 12),
-                            itemBuilder: (context, index) {
-                              final r = pendingSos[index];
-                              final created = _fmtDateTime(r['created_at']);
-                              return GestureDetector(
-                                onTap: () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (_) => SosConfirmationScreen(
-                                        sosId: r['id'].toString(),
-                                        guardId: r['assigned_guard_id']?.toString() ?? '',
-                                        studentId: r['user_id']?.toString() ?? '',
-                                      ),
-                                    ),
-                                  );
-                                },
-                                child: _buildSosCard(
-                                  title: "SOS",
-                                  label: "View details",
-                                  dateText: created,
-                                  color: const Color.fromARGB(255, 255, 240, 200),
-                                  iconWidget: const Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 28),
-                                ),
-                              );
-                            },
-                          ),
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Pending SOS',
+                        style:
+                            TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 12),
 
-                        const SizedBox(height: 24),
-
-                        // ✅ SOS Report History Section
-                        const Text('SOS Report History', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-                        const SizedBox(height: 12),
-                        if (historySos.isEmpty)
-                          const Center(
-                            child: Text("No resolved SOS", style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
-                          )
-                        else
-                          ListView.separated(
-                            shrinkWrap: true,
-                            physics: const NeverScrollableScrollPhysics(),
-                            itemCount: historySos.length,
-                            separatorBuilder: (_, __) => const SizedBox(height: 12),
-                            itemBuilder: (context, index) {
-                              final r = historySos[index];
-                              final status = (r['resolution_status'] ?? r['status'] ?? '').toString();
-                              final resolvedAt = _fmtDateTime(r['resolved_at']);
-                              return GestureDetector(
-                                onTap: () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (_) => ResolvedSosViewer(
-                                        reportData: r, // we’ll implement this page next
-                                      ),
+                      if (pendingSos.isEmpty)
+                        const Center(child: Text("No pending SOS"))
+                      else
+                        ListView.separated(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          itemCount: pendingSos.length,
+                          separatorBuilder: (_, __) =>
+                              const SizedBox(height: 12),
+                          itemBuilder: (context, index) {
+                            final r = pendingSos[index];
+                            return GestureDetector(
+                              onTap: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => SosConfirmationScreen(
+                                      sosId: r['id'].toString(),
+                                      guardId:
+                                          r['assigned_guard_id']?.toString() ?? '',
+                                      studentId:
+                                          r['user_id']?.toString() ?? '',
                                     ),
-                                  );
-                                },
-                                child: _buildSosCard(
-                                  title: "SOS — ${status.isEmpty ? 'resolved' : status}",
-                                  label: "Resolved on",
-                                  dateText: resolvedAt,
-                                  color: const Color.fromARGB(255, 200, 255, 200),
-                                  iconWidget: const Icon(Icons.check_circle, color: Colors.green, size: 28),
-                                ),
-                              );
-                            },
-                          ),
-                      ],
-                    ),
+                                  ),
+                                );
+                              },
+                              child: _buildSosCard(
+                                title: "SOS",
+                                label: "View details",
+                                dateText: _fmtDateTime(r['created_at']),
+                                color: const Color.fromARGB(255, 255, 240, 200),
+                                iconWidget: const Icon(
+                                    Icons.warning_amber_rounded,
+                                    color: Colors.orange,
+                                    size: 28),
+                              ),
+                            );
+                          },
+                        ),
+
+                      const SizedBox(height: 24),
+
+                      const Text(
+                        'SOS Report History',
+                        style:
+                            TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 12),
+
+                      if (historySos.isEmpty)
+                        const Center(child: Text("No resolved SOS"))
+                      else
+                        ListView.separated(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          itemCount: historySos.length,
+                          separatorBuilder: (_, __) =>
+                              const SizedBox(height: 12),
+                          itemBuilder: (context, index) {
+                            final r = historySos[index];
+                            final status =
+                                (r['resolution_status'] ?? r['status'] ?? '')
+                                    .toString();
+
+                            return GestureDetector(
+                              onTap: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) =>
+                                        ResolvedSosViewer(reportData: r),
+                                  ),
+                                );
+                              },
+                              child: _buildSosCard(
+                                title: "SOS — $status",
+                                label: "Resolved on",
+                                dateText: _fmtDateTime(r['resolved_at']),
+                                color:
+                                    const Color.fromARGB(255, 200, 255, 200),
+                                iconWidget: const Icon(Icons.check_circle,
+                                    color: Colors.green, size: 28),
+                              ),
+                            );
+                          },
+                        ),
+                    ],
                   );
                 },
               ),
-            ),
-
             ],
           ),
         ),
