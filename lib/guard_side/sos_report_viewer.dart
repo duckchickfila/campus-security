@@ -54,7 +54,25 @@ class _SosReportViewerState extends State<SosReportViewer> {
     }
 
     if (report != null) {
-      // ✅ Reverse geocode location
+      // ✅ If enrollment/contact missing in sos_reports, fetch from student_details
+      if ((report['enrollment_number'] == null || report['enrollment_number'].toString().trim().isEmpty) ||
+          (report['contact_number'] == null || report['contact_number'].toString().trim().isEmpty)) {
+        try {
+          final student = await _supabase
+              .from('student_details')
+              .select('enrollment_no, contact_no')
+              .eq('user_id', report['user_id'])
+              .maybeSingle();
+          if (student != null) {
+            report['enrollment_number'] ??= student['enrollment_no'];
+            report['contact_number'] ??= student['contact_no'];
+          }
+        } catch (e) {
+          debugPrint("⚠️ Could not fetch student_details: $e");
+        }
+      }
+
+      // ✅ Reverse geocode location into _address
       final lat = double.tryParse(report['lat']?.toString() ?? '');
       final lng = double.tryParse(report['lng']?.toString() ?? '');
       if (lat != null && lng != null) {
@@ -64,7 +82,7 @@ class _SosReportViewerState extends State<SosReportViewer> {
             final place = placemarks.first;
             _address =
                 "${place.street ?? ''}, ${place.locality ?? ''}, ${place.administrativeArea ?? ''}, ${place.country ?? ''}"
-                .replaceAll(RegExp(r',\s+,'), ',')
+                .replaceAll(RegExp(r',\\s+,'), ',')
                 .trim();
           } else {
             _address = "Lat: $lat, Lng: $lng";
@@ -255,11 +273,22 @@ class _SosReportViewerState extends State<SosReportViewer> {
                     children: [
                       _detailRow(label: "Student", value: studentName ?? _report!['student_name']?.toString()),
                       const SizedBox(height: 12),
-                      _detailRow(label: "Enrollment No", value: studentEnrollment),
-                      const SizedBox(height: 12),
-                      _detailRow(label: "Contact No", value: studentContact, clickable: true, onTap: () => _makePhoneCall(studentContact!)),
-                      const SizedBox(height: 12),
-                      _detailRow(label: "Location", value: _address ?? _report!['location']?.toString()),
+                      _detailRow(
+                        label: "Enrollment No",
+                        value: _report?['enrollment_number']?.toString() ?? _studentDetails?['enrollment_no']?.toString(),
+                      ),
+                      _detailRow(
+                        label: "Contact No",
+                        value: _report?['contact_number']?.toString() ?? _studentDetails?['contact_no']?.toString(),
+                        clickable: true,
+                        onTap: () {
+                          final number = _report?['contact_number']?.toString() ?? _studentDetails?['contact_no']?.toString();
+                          if (number != null && number.isNotEmpty) {
+                            _makePhoneCall(number);
+                          }
+                        },
+                      ),
+                    _detailRow(label: "Location", value: _address ?? _report!['location']?.toString()),
                       const SizedBox(height: 12),
                       _detailRow(label: "Status", value: _report!['status']?.toString()),
                     ],
