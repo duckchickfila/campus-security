@@ -4,6 +4,7 @@ import 'custom_appbar.dart';
 import 'login_page.dart';
 import 'demo_page.dart'; // ✅ import your home screen
 import 'tutorial_pages.dart';
+import 'package:image_picker/image_picker.dart';
 
 class StudentFormPage extends StatefulWidget {
   const StudentFormPage({super.key});
@@ -14,14 +15,14 @@ class StudentFormPage extends StatefulWidget {
 
 class _StudentFormPageState extends State<StudentFormPage> {
   final _formKey = GlobalKey<FormState>();
-
+  
   final _nameController = TextEditingController();
   final _enrollmentController = TextEditingController();
   final _departmentController = TextEditingController();
   final _semesterController = TextEditingController();
   final _contactController = TextEditingController();
   final _addressController = TextEditingController();
-
+  String? _photoUrl;
   bool _isSubmitting = false;
   bool _isLoading = true;
 
@@ -66,6 +67,8 @@ class _StudentFormPageState extends State<StudentFormPage> {
         _semesterController.text = data['semester'] ?? '';
         _contactController.text = data['contact_no'] ?? '';
         _addressController.text = data['address'] ?? '';
+        _photoUrl = data['profile_photo'];
+
       }
     } catch (e) {
       debugPrint('Failed to load details: $e');
@@ -73,9 +76,39 @@ class _StudentFormPageState extends State<StudentFormPage> {
       if (mounted) setState(() => _isLoading = false);
     }
   }
-
 Future<void> _submitDetails() async {
   if (!_formKey.currentState!.validate()) return;
+
+  // ✅ Check if profile photo is uploaded
+  if (_photoUrl == null || _photoUrl!.isEmpty) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please upload a profile photo before submitting.')),
+      );
+    }
+    return;
+  }
+
+  // ✅ Check if all fields are filled
+  final requiredFields = [
+    _nameController.text.trim(),
+    _enrollmentController.text.trim(),
+    _departmentController.text.trim(),
+    _semesterController.text.trim(),
+    _contactController.text.trim(),
+    _addressController.text.trim(),
+  ];
+
+  final allFilled = requiredFields.every((field) => field.isNotEmpty);
+
+  if (!allFilled) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please fill in all fields before submitting.')),
+      );
+    }
+    return;
+  }
 
   setState(() => _isSubmitting = true);
 
@@ -97,7 +130,8 @@ Future<void> _submitDetails() async {
       'semester': _semesterController.text.trim(),
       'contact_no': _contactController.text.trim(),
       'address': _addressController.text.trim(),
-      'seen_tutorial': false, // ✅ ensure tutorial shows after profile submission
+      'profile_photo': _photoUrl, // ✅ ensure photo is saved
+      'seen_tutorial': false,
     };
 
     if (existing.isNotEmpty) {
@@ -121,14 +155,12 @@ Future<void> _submitDetails() async {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Details updated successfully')),
           );
-          // ✅ Navigate to tutorial after update
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(builder: (_) => const TutorialPages()),
           );
         }
       } else {
-        // If nothing changed, still check tutorial
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(builder: (_) => const TutorialPages()),
@@ -141,7 +173,6 @@ Future<void> _submitDetails() async {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Details saved successfully')),
         );
-        // ✅ Navigate to tutorial after first save
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(builder: (_) => const TutorialPages()),
@@ -158,6 +189,7 @@ Future<void> _submitDetails() async {
     if (mounted) setState(() => _isSubmitting = false);
   }
 }
+
   Future<void> _logout() async {
     await _supabase.auth.signOut();
     if (mounted) {
@@ -169,81 +201,54 @@ Future<void> _submitDetails() async {
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        backgroundColor: const Color.fromARGB(255, 247, 196, 196),
-        title: const Text(
-          'Profile',
-          style: TextStyle(
-            fontFamily: 'Inter',
-            color: Colors.black,
-            fontSize: 30,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.logout, color: Colors.black),
-            onPressed: _logout, // ✅ logout functionality
-          ),
-        ],
-      ),
-      body: SafeArea(
-        child: _isLoading
-            ? const Center(child: CircularProgressIndicator())
-            : SingleChildScrollView(
-                padding: const EdgeInsets.all(16),
-                child: Form(
-                  key: _formKey,
-                  child: Column(
-                    children: [
-                      _buildTextField(_nameController, 'Name'),
-                      const SizedBox(height: 26),
-                      _buildTextField(_enrollmentController, 'Enrollment No'),
-                      const SizedBox(height: 26),
-                      _buildTextField(_departmentController, 'Department'),
-                      const SizedBox(height: 20),
-                      _buildTextField(_semesterController, 'Semester'),
-                      const SizedBox(height: 20),
-                      _buildTextField(_contactController, 'Contact No',
-                          keyboardType: TextInputType.phone),
-                      const SizedBox(height: 24),
-                      _buildTextField(_addressController, 'Address', maxLines: 3),
-                      const SizedBox(height: 28),
-                      SizedBox(
-                        width: double.infinity,
-                        height: 50,
-                        child: ElevatedButton(
-                          onPressed: _isSubmitting ? null : _submitDetails,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.green,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(16),
-                            ),
-                          ),
-                          child: _isSubmitting
-                              ? const CircularProgressIndicator(
-                                  valueColor: AlwaysStoppedAnimation(Colors.white),
-                                )
-                              : const Text(
-                                  'Submit',
-                                  style: TextStyle(
-                                    fontSize: 20,
-                                    fontWeight: FontWeight.bold,
-                                    fontFamily: 'Inter',
-                                    color: Colors.white,
-                                  ),
-                                ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-      ),
-    );
+  Future<void> _uploadProfilePhoto() async {
+    final picker = ImagePicker();
+    final pickedFile = await picker.pickImage(source: ImageSource.gallery);
+
+    if (pickedFile == null) return;
+
+    final userId = _supabase.auth.currentUser?.id;
+    if (userId == null) return;
+
+    final fileBytes = await pickedFile.readAsBytes();
+    final fileName = "student_$userId.jpg";
+
+    try {
+      // Upload to Supabase Storage (overwrite if exists)
+      await _supabase.storage.from('student_photos').uploadBinary(
+        fileName,
+        fileBytes,
+        fileOptions: const FileOptions(upsert: true),
+      );
+
+      // Get public URL
+      final publicUrl =
+          _supabase.storage.from('student_photos').getPublicUrl(fileName);
+
+      // Add cache-busting query param
+      final refreshedUrl =
+          "$publicUrl?v=${DateTime.now().millisecondsSinceEpoch}";
+
+      // Update student_details table with photo URL
+      await _supabase
+          .from('student_details')
+          .update({'profile_photo': refreshedUrl})
+          .eq('user_id', userId);
+
+      if (mounted) {
+        setState(() => _photoUrl = refreshedUrl);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Profile photo uploaded successfully')),
+        );
+      }
+    } catch (e) {
+      debugPrint("Upload failed: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Upload failed: $e')),
+        );
+      }
+    }
   }
 
   Widget _buildTextField(TextEditingController controller, String label,
@@ -283,6 +288,115 @@ Future<void> _submitDetails() async {
         }
         return null;
       },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        backgroundColor: const Color.fromARGB(255, 247, 196, 196),
+        title: const Text(
+          'Profile',
+          style: TextStyle(
+            fontFamily: 'Inter',
+            color: Colors.black,
+            fontSize: 30,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.logout, color: Colors.black),
+            onPressed: _logout, // ✅ logout functionality
+          ),
+        ],
+      ),
+      body: SafeArea(
+        child: _isLoading
+            ? const Center(child: CircularProgressIndicator())
+            : SingleChildScrollView(
+                padding: const EdgeInsets.all(16),
+                child: Form(
+                  key: _formKey,
+                  child: Column(
+                    children: [
+                      // ✅ Profile photo display with proper fallback
+                      CircleAvatar(
+                        radius: 50,
+                        backgroundColor: Colors.grey.shade200,
+                        backgroundImage: (_photoUrl != null &&
+                                _photoUrl!.isNotEmpty)
+                            ? NetworkImage(_photoUrl!)
+                            : null,
+                        child: (_photoUrl == null || _photoUrl!.isEmpty)
+                            ? const Icon(Icons.account_circle,
+                                size: 80, color: Colors.grey)
+                            : null,
+                      ),
+                      const SizedBox(height: 12),
+                      ElevatedButton.icon(
+                        onPressed: _uploadProfilePhoto,
+                        icon: const Icon(Icons.upload),
+                        label: const Text("Upload Profile Photo"),
+                      ),
+                      const SizedBox(height: 28),
+
+                      // ✅ Existing form fields
+                      _buildTextField(_nameController, 'Name'),
+                      const SizedBox(height: 26),
+                      _buildTextField(_enrollmentController, 'Enrollment No'),
+                      const SizedBox(height: 26),
+                      _buildTextField(_departmentController, 'Department'),
+                      const SizedBox(height: 20),
+                      _buildTextField(_semesterController, 'Semester'),
+                      const SizedBox(height: 20),
+                      _buildTextField(
+                        _contactController,
+                        'Contact No',
+                        keyboardType: TextInputType.phone,
+                      ),
+                      const SizedBox(height: 24),
+                      _buildTextField(
+                        _addressController,
+                        'Address',
+                        maxLines: 3,
+                      ),
+                      const SizedBox(height: 28),
+
+                      // ✅ Submit button
+                      SizedBox(
+                        width: double.infinity,
+                        height: 50,
+                        child: ElevatedButton(
+                          onPressed: _isSubmitting ? null : _submitDetails,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.green,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                          ),
+                          child: _isSubmitting
+                              ? const CircularProgressIndicator(
+                                  valueColor:
+                                      AlwaysStoppedAnimation(Colors.white),
+                                )
+                              : const Text(
+                                  'Submit',
+                                  style: TextStyle(
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.bold,
+                                    fontFamily: 'Inter',
+                                    color: Colors.white,
+                                  ),
+                                ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+      ),
     );
   }
 }
