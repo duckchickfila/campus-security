@@ -50,7 +50,12 @@ class _ResolvedReportViewerState extends State<ResolvedReportViewer> {
     return Scaffold(
       appBar: const CustomAppBar(),
       body: SafeArea(
+      child: RefreshIndicator(
+        onRefresh: () async {
+          setState(() {});
+        },
         child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(), // REQUIRED
           padding: const EdgeInsets.all(16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -166,6 +171,7 @@ class _ResolvedReportViewerState extends State<ResolvedReportViewer> {
           ),
         ),
       ),
+      )
     );
   }
 

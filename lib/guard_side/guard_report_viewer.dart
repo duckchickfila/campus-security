@@ -33,6 +33,9 @@ class _GuardReportViewerState extends State<GuardReportViewer> {
 
   String? selectedStatus;
   List<File> evidenceFiles = [];
+  String? _studentName;
+  String? _enrollmentNumber;
+
 
   final _supabase = Supabase.instance.client;
   final ImagePicker _picker = ImagePicker();
@@ -57,12 +60,33 @@ class _GuardReportViewerState extends State<GuardReportViewer> {
     if (videoUrl != null && videoUrl.isNotEmpty) {
       _videoController = VideoPlayerController.networkUrl(Uri.parse(videoUrl))
         ..initialize().then((_) {
+          if (!mounted) return;
           setState(() {
             _isVideoInitialized = true;
           });
         });
     }
+
+    // 🔽 Fetch student name & enrollment number from student_details
+    final studentId = widget.reportData['student_id'];
+    if (studentId != null) {
+      _supabase
+          .from('student_details')
+          .select('student_name, enrollment_number')
+          .eq('id', studentId)
+          .single()
+          .then((data) {
+        if (!mounted) return;
+        setState(() {
+          _studentName = data['student_name']?.toString();
+          _enrollmentNumber = data['enrollment_number']?.toString();
+        });
+      }).catchError((e) {
+        print('Failed to fetch student details: $e');
+      });
+    }
   }
+
 
   @override
   void dispose() {
@@ -399,7 +423,12 @@ class _GuardReportViewerState extends State<GuardReportViewer> {
     return Scaffold(
       appBar: const GuardCustomAppBar(),
       body: SafeArea(
+      child: RefreshIndicator(
+        onRefresh: () async {
+          setState(() {});
+        },
         child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(), // REQUIRED
           padding: const EdgeInsets.all(16),
           child: Form(
             key: _formKey,
@@ -612,36 +641,163 @@ class _GuardReportViewerState extends State<GuardReportViewer> {
 
                 // Normal reports
                 else ...[
+                  // 🔽 Student details (read-only)
                   _buildReadOnlyField(
-                      'Type', widget.reportData['type'], labelStyle, valueStyle),
+                    'Student Name',
+                    widget.reportData['student_name'],
+                    labelStyle,
+                    valueStyle,
+                  ),
                   const SizedBox(height: 20),
+
                   _buildReadOnlyField(
-                      'Location', widget.reportData['location'], labelStyle, valueStyle),
+                    'Enrollment No',
+                    widget.reportData['enrollment_number'],
+                    labelStyle,
+                    valueStyle,
+                  ),
                   const SizedBox(height: 20),
+
+                  _buildReadOnlyField(
+                    'Type',
+                    widget.reportData['type'],
+                    labelStyle,
+                    valueStyle,
+                  ),
+                  const SizedBox(height: 20),
+
+                  _buildReadOnlyField(
+                    'Location',
+                    widget.reportData['location'],
+                    labelStyle,
+                    valueStyle,
+                  ),
+                  const SizedBox(height: 20),
+
                   _buildReadOnlyField(
                     'Date',
                     _formatDate(
                       (widget.reportData['date'] ??
-                          widget.reportData['date_submitted'] ??
-                          widget.reportData['created_at'])
+                              widget.reportData['date_submitted'] ??
+                              widget.reportData['created_at'])
                           ?.toString(),
                     ),
                     labelStyle,
                     valueStyle,
                   ),
                   const SizedBox(height: 20),
-                  _buildReadOnlyField('Details of Incident',
-                      widget.reportData['details'], labelStyle, valueStyle),
+
+                  _buildReadOnlyField(
+                    'Details of Incident',
+                    widget.reportData['details'],
+                    labelStyle,
+                    valueStyle,
+                  ),
                   const SizedBox(height: 20),
+
                   const Text('Attachments:', style: labelStyle),
                   const SizedBox(height: 8),
                   _buildAttachmentPreviews(widget.reportData['attachments']),
+                  const SizedBox(height: 28),
+                  const Divider(),
+                  const SizedBox(height: 12),
+
+                  // 🔽 Guard action form (only if not resolved)
+                  if (status != 'resolved') ...[
+                    const Text('Update Report Status', style: labelStyle),
+                    const SizedBox(height: 12),
+
+                    DropdownButtonFormField<String>(
+                      value: selectedStatus,
+                      items: statuses.map((s) {
+                        return DropdownMenuItem(
+                          value: s,
+                          child: Text(s.toUpperCase()),
+                        );
+                      }).toList(),
+                      onChanged: (val) {
+                        setState(() {
+                          selectedStatus = val;
+                        });
+                      },
+                      decoration: const InputDecoration(
+                        border: OutlineInputBorder(),
+                        labelText: 'Select Status',
+                      ),
+                    ),
+
+                    const SizedBox(height: 20),
+                    TextFormField(
+                      controller: _remarksController,
+                      maxLines: 3,
+                      decoration: const InputDecoration(
+                        border: OutlineInputBorder(),
+                        labelText: 'Remarks',
+                        hintText: 'Enter remarks here...',
+                      ),
+                      validator: (val) {
+                        if (val == null || val.trim().isEmpty) {
+                          return 'Remarks cannot be empty';
+                        }
+                        return null;
+                      },
+                    ),
+
+                    const SizedBox(height: 20),
+                    const Text('Evidence Attachments:', style: labelStyle),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: evidenceFiles.map((file) {
+                        return SizedBox(
+                          width: 100,
+                          height: 100,
+                          child: _previewLocalFile(file),
+                        );
+                      }).toList(),
+                    ),
+
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        ElevatedButton.icon(
+                          onPressed: _pickEvidence,
+                          icon: const Icon(Icons.image),
+                          label: const Text('Add Images'),
+                        ),
+                        const SizedBox(width: 12),
+                        ElevatedButton.icon(
+                          onPressed: _pickVideo,
+                          icon: const Icon(Icons.videocam),
+                          label: const Text('Add Video'),
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 24),
+                    Center(
+                      child: ElevatedButton(
+                        onPressed: _updateStatus,
+                        style: ElevatedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
+                          backgroundColor: Colors.blue,
+                        ),
+                        child: const Text(
+                          'Submit Action',
+                          style: TextStyle(fontSize: 18, color: Colors.white),
+                        ),
+                      ),
+                    ),
+                  ],
                 ],
+
               ],
             ),
           ),
         ),
       ),
+      )
     );
   }
 }

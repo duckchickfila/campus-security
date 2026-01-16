@@ -581,8 +581,14 @@ class _GuardMainPageState extends State<GuardMainPage> {
       appBar: const GuardCustomAppBar(),
       body: SafeArea(
         child: _isLoading
-            ? const Center(child: CircularProgressIndicator())
-            : SingleChildScrollView(
+        ? const Center(child: CircularProgressIndicator())
+          : RefreshIndicator(
+              onRefresh: () async {
+                await _loadInitial();
+                await _loadSosReports();
+              },
+              child: SingleChildScrollView(
+                physics: const AlwaysScrollableScrollPhysics(), // REQUIRED
                 padding: const EdgeInsets.all(16),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -590,19 +596,18 @@ class _GuardMainPageState extends State<GuardMainPage> {
                     _buildHeader(),
                     const SizedBox(height: 24),
 
-                    // Normal reports
                     _buildPendingSection(),
                     const SizedBox(height: 24),
                     _buildHistorySection(),
                     const SizedBox(height: 24),
 
-                    // SOS reports
                     _buildPendingSosSection(),
                     const SizedBox(height: 24),
                     _buildSosHistorySection(),
                   ],
                 ),
               ),
+            ),
       ),
     );
   }
