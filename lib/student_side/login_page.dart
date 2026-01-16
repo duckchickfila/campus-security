@@ -32,7 +32,6 @@ class _LoginPageState extends State<LoginPage> {
  Future<void> _authenticate() async {
   if (!_formKey.currentState!.validate()) return;
 
-  // ---------- Check if role is selected first ----------
   if (_selectedRole.isEmpty) {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Please select a role')),
@@ -51,50 +50,9 @@ class _LoginPageState extends State<LoginPage> {
       );
 
       if (loginRes.user == null) {
-        throw const AuthException('invalid login credentials');
+        throw const AuthException('Invalid email or password');
       }
 
-      // ---------- CHECK ROLE BEFORE OTP ----------
-      final userId = loginRes.user!.id;
-      bool roleValid = false;
-
-      if (_selectedRole == 'student') {
-        final studentRow = await _supabase
-            .from('student_details')
-            .select('user_id')
-            .eq('user_id', userId)
-            .maybeSingle();
-
-        if (studentRow == null) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('This account is not registered as a student.'),
-            ),
-          );
-        } else {
-          roleValid = true;
-        }
-      } else {
-        final guardRow = await _supabase
-            .from('guard_details')
-            .select('user_id')
-            .eq('user_id', userId)
-            .maybeSingle();
-
-        if (guardRow == null) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('This account is not registered as a guard.'),
-            ),
-          );
-        } else {
-          roleValid = true;
-        }
-      }
-
-      if (!roleValid) return; // Stop if role is invalid
-
-      // 🔐 Send NUMERIC OTP
       await _supabase.auth.signInWithOtp(
         email: _emailController.text.trim(),
         shouldCreateUser: false,
@@ -106,15 +64,24 @@ class _LoginPageState extends State<LoginPage> {
       );
 
       if (!verified) {
-        throw const AuthException('invalid otp');
+        throw const AuthException('OTP verification failed');
       }
 
-      // ---------- UPSERT AND NAVIGATE ----------
+      final userId = loginRes.user!.id;
+
       if (_selectedRole == 'student') {
-        await _supabase.from('student_details').upsert(
-          {'user_id': userId},
-          onConflict: 'user_id',
-        );
+        final studentRow = await _supabase
+            .from('student_details')
+            .select('user_id')
+            .eq('user_id', userId)
+            .maybeSingle();
+
+        if (studentRow == null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('You are not registered as a student')),
+          );
+          return;
+        }
 
         Navigator.pushReplacement(
           context,
@@ -126,10 +93,18 @@ class _LoginPageState extends State<LoginPage> {
           ),
         );
       } else {
-        await _supabase.from('guard_details').upsert(
-          {'user_id': userId},
-          onConflict: 'user_id',
-        );
+        final guardRow = await _supabase
+            .from('guard_details')
+            .select('user_id')
+            .eq('user_id', userId)
+            .maybeSingle();
+
+        if (guardRow == null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('You are not registered as a guard')),
+          );
+          return;
+        }
 
         Navigator.pushReplacement(
           context,
@@ -153,20 +128,9 @@ class _LoginPageState extends State<LoginPage> {
       );
 
       if (signupRes.user == null) {
-        throw const AuthException('signup failed');
+        throw const AuthException('Signup failed');
       }
 
-      final userId = signupRes.user!.id;
-
-      // ---------- CHECK ROLE BEFORE OTP ----------
-      if (_selectedRole != 'student' && _selectedRole != 'guard') {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Invalid role selected')),
-        );
-        return;
-      }
-
-      // 🔐 Send NUMERIC OTP
       await _supabase.auth.signInWithOtp(
         email: _emailController.text.trim(),
         shouldCreateUser: false,
@@ -178,10 +142,11 @@ class _LoginPageState extends State<LoginPage> {
       );
 
       if (!verified) {
-        throw const AuthException('invalid otp');
+        throw const AuthException('OTP verification failed');
       }
 
-      // ---------- INSERT USER INTO ROLE TABLE ----------
+      final userId = signupRes.user!.id;
+
       if (_selectedRole == 'student') {
         await _supabase.from('student_details').insert({
           'user_id': userId,
@@ -195,34 +160,45 @@ class _LoginPageState extends State<LoginPage> {
       }
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Account created! Please log in.'),
-        ),
+        const SnackBar(content: Text('Account created! Please log in.')),
       );
 
       setState(() => _isLogin = true);
     }
-  } on AuthException catch (e) {
-    String message = 'Authentication failed. Please try again.';
-    final error = e.message.toLowerCase();
+  } on AuthApiException catch (e) {
+    // ---------- SUPABASE AUTH ERRORS ----------
+    String message = e.message;
 
-    if (error.contains('invalid login')) {
-      message = 'Incorrect email or password.';
-    } else if (error.contains('invalid otp')) {
-      message = 'Incorrect OTP. Please try again.';
-    } else if (error.contains('expired')) {
-      message = 'OTP expired. Please request a new one.';
-    } else if (error.contains('email not confirmed')) {
-      message = 'Please verify your email using OTP.';
+    if (e.code == 'user_already_exists') {
+      message = 'Account already exists. Please log in.';
+      setState(() => _isLogin = true);
+    } else if (e.code == 'over_request_rate_limit') {
+      final waitMatch = RegExp(r'(\d+)\s*seconds').firstMatch(e.message);
+      final seconds = waitMatch?.group(1);
+      message = seconds != null
+          ? 'Please wait $seconds seconds before retrying.'
+          : 'Too many requests. Please wait and try again.';
+    } else if (e.code == 'invalid_login_credentials') {
+      message = 'Invalid email or password.';
     }
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(message)),
     );
-  } on PostgrestException catch (_) {
+  } on AuthRetryableFetchException {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('Server error. Please try again later.'),
+        content: Text('Network issue. Please try again.'),
+      ),
+    );
+  } on AuthException catch (e) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(e.message)),
+    );
+  } catch (_) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Something went wrong. Please try again.'),
       ),
     );
   } finally {
@@ -230,71 +206,80 @@ class _LoginPageState extends State<LoginPage> {
   }
 }
 
-Future<bool> showOtpDialog(BuildContext context, String email) async {
-  final otpController = TextEditingController();
-  bool verified = false;
 
-  await showDialog(
-    context: context,
-    barrierDismissible: false,
-    builder: (_) => AlertDialog(
-      title: const Text(
-        'OTP Verification',
-        style: TextStyle(fontWeight: FontWeight.bold),
-      ),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Text(
-            'We have sent a verification code to your email.\n\n'
-            'Please ENTER the OTP.\n'
-            'Do NOT click the link in the email.',
-            style: TextStyle(fontSize: 14),
-          ),
-          const SizedBox(height: 16),
-          TextField(
-            controller: otpController,
-            keyboardType: TextInputType.number,
-            maxLength: 8,
-            decoration: const InputDecoration(
-              labelText: 'Enter 8-digit OTP',
-              border: OutlineInputBorder(),
+
+
+  Future<bool> showOtpDialog(BuildContext context, String email) async {
+    final otpController = TextEditingController();
+    bool verified = false;
+
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => AlertDialog(
+        title: const Text(
+          'OTP Verification',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'We have sent a verification code to your email.\n\n'
+              'Please ENTER the OTP.\n'
+              'Do NOT click the link in the email.',
+              style: TextStyle(fontSize: 14),
             ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: otpController,
+              keyboardType: TextInputType.number,
+              maxLength: 8,
+              decoration: const InputDecoration(
+                labelText: 'Enter 8-digit OTP',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              try {
+                final res = await Supabase.instance.client.auth.verifyOTP(
+                  type: OtpType.email,
+                  email: email,
+                  token: otpController.text.trim(),
+                );
+
+                if (res.user != null) {
+                  verified = true;
+                  Navigator.pop(context);
+                }
+              } on AuthApiException {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Invalid or expired OTP')),
+                );
+              } catch (_) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('OTP verification failed. Try again.'),
+                  ),
+                );
+              }
+            },
+            child: const Text('Verify OTP'),
           ),
         ],
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Cancel'),
-        ),
-        ElevatedButton(
-          onPressed: () async {
-            try {
-              final res = await Supabase.instance.client.auth.verifyOTP(
-                type: OtpType.email,
-                email: email,
-                token: otpController.text.trim(),
-              );
+    );
 
-              if (res.user != null) {
-                verified = true;
-                Navigator.pop(context);
-              }
-            } catch (_) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Invalid OTP')),
-              );
-            }
-          },
-          child: const Text('Verify OTP'),
-        ),
-      ],
-    ),
-  );
-
-  return verified;
-}
+    return verified;
+  }
 
 
   @override
