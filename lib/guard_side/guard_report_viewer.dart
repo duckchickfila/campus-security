@@ -183,10 +183,17 @@ class _GuardReportViewerState extends State<GuardReportViewer> {
   }) {
     String displayValue = value ?? '';
 
-    if (isDate && value != null) {
-      final parsed = DateTime.tryParse(value);
-      if (parsed != null) {
-        displayValue = DateFormat('dd-MM-yyyy').format(parsed);
+    if (isDate && value != null && value.isNotEmpty) {
+      try {
+        // Parse ISO string with timezone
+        final parsed = DateTime.tryParse(value);
+        if (parsed != null) {
+          // Format as dd-MM-yyyy
+          displayValue = DateFormat('dd-MM-yyyy').format(parsed.toLocal());
+        }
+      } catch (_) {
+        // fallback: show raw string
+        displayValue = value;
       }
     }
 
@@ -200,21 +207,20 @@ class _GuardReportViewerState extends State<GuardReportViewer> {
     );
   }
 
-/// ✅ Helper to format ISO date strings
-String _formatDate(String? raw) {
-  if (raw == null || raw.isEmpty) return '';
-  try {
-    final dt = DateTime.tryParse(raw);
-    if (dt == null) return raw;
-    return "${dt.day.toString().padLeft(2, '0')}-"
-           "${dt.month.toString().padLeft(2, '0')}-"
-           "${dt.year}";
-  } catch (_) {
-    return raw;
-  }
-}
 
- Widget _buildAttachmentPreviews(dynamic attachmentsRaw) {
+  String _formatDate(String? raw) {
+    if (raw == null || raw.isEmpty) return '';
+    try {
+      final dt = DateTime.tryParse(raw);
+      if (dt == null) return raw;
+      // Convert to local timezone and format
+      return DateFormat('dd-MM-yyyy').format(dt.toLocal());
+    } catch (_) {
+      return raw;
+    }
+  }
+
+  Widget _buildAttachmentPreviews(dynamic attachmentsRaw) {
     List<String> attachments;
     if (attachmentsRaw is List) {
       attachments = attachmentsRaw.map((e) => e.toString().trim()).where((s) => s.isNotEmpty).toList();
@@ -238,22 +244,55 @@ String _formatDate(String? raw) {
     return Wrap(
       spacing: 8,
       runSpacing: 8,
-      children: attachments.map((u) {
-        final lower = u.toLowerCase();
-        final isImage = lower.endsWith('.jpg') ||
-            lower.endsWith('.jpeg') ||
-            lower.endsWith('.png');
-        return Container(
-          width: 100,
-          height: 100,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.grey),
+      children: attachments.map((url) {
+        final lower = url.toLowerCase();
+
+        // Decide preview based on file type
+        Widget preview;
+        if (lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.png')) {
+          preview = Image.network(url, fit: BoxFit.cover);
+        } else if (lower.endsWith('.mp4')) {
+          preview = const Icon(Icons.videocam, size: 40, color: Colors.blue);
+        } else {
+          preview = const Icon(Icons.insert_drive_file, size: 40, color: Colors.grey);
+        }
+
+        return InkWell(
+          onTap: () {
+            if (lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.png')) {
+              // Show image in dialog
+              showDialog(
+                context: context,
+                builder: (_) => Dialog(
+                  child: InteractiveViewer(
+                    child: Image.network(url),
+                  ),
+                ),
+              );
+            } else if (lower.endsWith('.mp4')) {
+              // Navigate to video player page
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => VideoPlayerScreen(videoUrl: url),
+                ),
+              );
+            } else {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Opening $url')),
+              );
+            }
+          },
+          child: Container(
+            width: 100,
+            height: 100,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.grey),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: preview,
           ),
-          clipBehavior: Clip.antiAlias,
-          child: isImage
-              ? Image.network(u, fit: BoxFit.cover)
-              : const Center(child: Icon(Icons.videocam, size: 40, color: Colors.blue)),
         );
       }).toList(),
     );
@@ -262,10 +301,31 @@ String _formatDate(String? raw) {
   Widget _previewLocalFile(File file) {
     final lower = file.path.toLowerCase();
     final isImage = lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.png');
-    if (isImage) {
-      return Image.file(file, fit: BoxFit.cover);
-    }
-    return const Center(child: Icon(Icons.videocam, size: 40, color: Colors.blue));
+
+    return InkWell(
+      onTap: () {
+        if (isImage) {
+          showDialog(
+            context: context,
+            builder: (_) => Dialog(
+              child: InteractiveViewer(
+                child: Image.file(file),
+              ),
+            ),
+          );
+        } else {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => VideoPlayerScreen(videoUrl: file.path),
+            ),
+          );
+        }
+      },
+      child: isImage
+          ? Image.file(file, fit: BoxFit.cover)
+          : const Center(child: Icon(Icons.videocam, size: 40, color: Colors.blue)),
+    );
   }
 
   // Inside your GuardReportViewerState class
@@ -496,8 +556,7 @@ String _formatDate(String? raw) {
                   _buildReadOnlyField(
                     'Created At',
                     widget.reportData['created_at'] != null
-                        ? DateFormat('dd-MM-yyyy')
-                            .format(DateTime.parse(widget.reportData['created_at']))
+                        ? _formatDate(widget.reportData['created_at']?.toString())
                         : '',
                     labelStyle,
                     valueStyle,
@@ -561,10 +620,12 @@ String _formatDate(String? raw) {
                   const SizedBox(height: 20),
                   _buildReadOnlyField(
                     'Date',
-                    (widget.reportData['date'] ??
-                            widget.reportData['date_submitted'] ??
-                            widget.reportData['created_at'])
-                        ?.toString(),
+                    _formatDate(
+                      (widget.reportData['date'] ??
+                          widget.reportData['date_submitted'] ??
+                          widget.reportData['created_at'])
+                          ?.toString(),
+                    ),
                     labelStyle,
                     valueStyle,
                   ),
@@ -579,6 +640,68 @@ String _formatDate(String? raw) {
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class VideoPlayerScreen extends StatefulWidget {
+  final String videoUrl;
+  const VideoPlayerScreen({super.key, required this.videoUrl});
+
+  @override
+  State<VideoPlayerScreen> createState() => _VideoPlayerScreenState();
+}
+
+class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
+  late VideoPlayerController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    // Handle both network and local file paths
+    if (widget.videoUrl.startsWith('http')) {
+      _controller = VideoPlayerController.network(widget.videoUrl);
+    } else {
+      _controller = VideoPlayerController.file(File(widget.videoUrl));
+    }
+    _controller.initialize().then((_) {
+      setState(() {});
+      _controller.play();
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text("Video Evidence")),
+      body: Center(
+        child: _controller.value.isInitialized
+            ? AspectRatio(
+                aspectRatio: _controller.value.aspectRatio,
+                child: VideoPlayer(_controller),
+              )
+            : const CircularProgressIndicator(),
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () {
+          setState(() {
+            if (_controller.value.isPlaying) {
+              _controller.pause();
+            } else {
+              _controller.play();
+            }
+          });
+        },
+        child: Icon(
+          _controller.value.isPlaying ? Icons.pause : Icons.play_arrow,
         ),
       ),
     );
