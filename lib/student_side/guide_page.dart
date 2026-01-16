@@ -23,8 +23,6 @@ class GuidePage extends StatefulWidget {
 }
 
 class _GuidePageState extends State<GuidePage> {
-  static const MethodChannel _channel = MethodChannel('overlay_permission');
-
   /// Request all normal permissions
   Future<void> _grantPermissions() async {
     await _handlePermission(Permission.location, 'Location is required to tag incidents.');
@@ -33,11 +31,6 @@ class _GuidePageState extends State<GuidePage> {
 
     // GPS check after location permission
     await _checkGpsEnabled();
-
-    // Overlay → open system settings if not granted
-    if (Platform.isAndroid && !await Permission.systemAlertWindow.isGranted) {
-      _showOverlayDialog();
-    }
   }
 
   /// Handle normal permissions (re‑prompt unless permanently denied)
@@ -85,114 +78,111 @@ class _GuidePageState extends State<GuidePage> {
     );
   }
 
-  /// Proceed → check all permissions
   /// Proceed → check all permissions and profile completion
-Future<void> _proceed() async {
-  final locationGranted = await Permission.location.isGranted;
-  final cameraGranted = await Permission.camera.isGranted;
-  final micGranted = await Permission.microphone.isGranted;
-  final overlayGranted = await Permission.systemAlertWindow.isGranted;
-  final gpsEnabled = await Geolocator.isLocationServiceEnabled();
+  Future<void> _proceed() async {
+    final locationGranted = await Permission.location.isGranted;
+    final cameraGranted = await Permission.camera.isGranted;
+    final micGranted = await Permission.microphone.isGranted;
+    final gpsEnabled = await Geolocator.isLocationServiceEnabled();
 
-  if (locationGranted && cameraGranted && micGranted && overlayGranted && gpsEnabled) {
-    if (mounted) {
-      // ✅ First check profile completeness
-      final profileComplete = await _isProfileComplete();
+    if (locationGranted && cameraGranted && micGranted && gpsEnabled) {
+      if (mounted) {
+        // ✅ First check profile completeness
+        final profileComplete = await _isProfileComplete();
 
-      if (!profileComplete) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const StudentFormPage()),
-        );
-        return;
-      }
-
-      // ✅ Only if profile is complete, check tutorial flag
-      final supabase = Supabase.instance.client;
-      final userId = supabase.auth.currentUser?.id;
-
-      if (userId != null) {
-        final profile = await supabase
-            .from('student_details')
-            .select('seen_tutorial')
-            .eq('user_id', userId)
-            .maybeSingle();
-
-        final raw = profile?['seen_tutorial'];
-        final bool seenTutorial = raw == true ||
-            raw == 1 ||
-            (raw is String && raw.toLowerCase() == 'true');
-
-        if (!seenTutorial) {
+        if (!profileComplete) {
           Navigator.pushReplacement(
             context,
-            MaterialPageRoute(builder: (_) => const TutorialPages()),
-          );
-          return;
-        } else {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (_) => const Demopage1()),
+            MaterialPageRoute(builder: (_) => const StudentFormPage()),
           );
           return;
         }
+
+        // ✅ Only if profile is complete, check tutorial flag
+        final supabase = Supabase.instance.client;
+        final userId = supabase.auth.currentUser?.id;
+
+        if (userId != null) {
+          final profile = await supabase
+              .from('student_details')
+              .select('seen_tutorial')
+              .eq('user_id', userId)
+              .maybeSingle();
+
+          final raw = profile?['seen_tutorial'];
+          final bool seenTutorial = raw == true ||
+              raw == 1 ||
+              (raw is String && raw.toLowerCase() == 'true');
+
+          if (!seenTutorial) {
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (_) => const TutorialPages()),
+            );
+            return;
+          } else {
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (_) => const Demopage1()),
+            );
+            return;
+          }
+        }
+      }
+    } else {
+      if (!locationGranted) {
+        _showReasonDialog('Location is required to tag incidents.', Permission.location);
+      } else if (!cameraGranted) {
+        _showReasonDialog('Camera is required to capture incident images.', Permission.camera);
+      } else if (!micGranted) {
+        _showReasonDialog('Microphone is required for audio/video evidence.', Permission.microphone);
+      } else if (!gpsEnabled) {
+        _showGpsDialog();
       }
     }
-  } else {
-    if (!locationGranted) {
-      _showReasonDialog('Location is required to tag incidents.', Permission.location);
-    } else if (!cameraGranted) {
-      _showReasonDialog('Camera is required to capture incident images.', Permission.camera);
-    } else if (!micGranted) {
-      _showReasonDialog('Microphone is required for audio/video evidence.', Permission.microphone);
-    } else if (!gpsEnabled) {
-      _showGpsDialog();
-    } else if (!overlayGranted) {
-      _showOverlayDialog();
-    }
   }
-}
-  Future<bool> _checkAllPermissions() async {
-  final locationGranted = await Permission.location.isGranted;
-  final cameraGranted = await Permission.camera.isGranted;
-  final micGranted = await Permission.microphone.isGranted;
-  final overlayGranted = await Permission.systemAlertWindow.isGranted;
-  final gpsEnabled = await Geolocator.isLocationServiceEnabled();
 
-  return locationGranted && cameraGranted && micGranted && overlayGranted && gpsEnabled;
-}
+  Future<bool> _checkAllPermissions() async {
+    final locationGranted = await Permission.location.isGranted;
+    final cameraGranted = await Permission.camera.isGranted;
+    final micGranted = await Permission.microphone.isGranted;
+    final gpsEnabled = await Geolocator.isLocationServiceEnabled();
+
+    return locationGranted && cameraGranted && micGranted && gpsEnabled;
+  }
 
   Future<bool> _isProfileComplete() async {
-  final userId = Supabase.instance.client.auth.currentUser?.id;
-  if (userId == null) return false;
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (userId == null) return false;
 
-  try {
-    final response = await Supabase.instance.client
-        .from('student_details')
-        .select()
-        .eq('user_id', userId)
-        .limit(1);
+    try {
+      final response = await Supabase.instance.client
+          .from('student_details')
+          .select()
+          .eq('user_id', userId)
+          .limit(1);
 
-    if (response.isEmpty) return false;
+      if (response.isEmpty) return false;
 
-    final data = response.first as Map<String, dynamic>;
+      final data = response.first as Map<String, dynamic>;
 
-    // Mandatory fields check
-    final requiredFields = [
-      data['name'],
-      data['enrollment_no'],
-      data['department'],
-      data['semester'],
-      data['contact_no'],
-      data['address'],
-    ];
+      // Mandatory fields check
+      final requiredFields = [
+        data['name'],
+        data['enrollment_no'],
+        data['department'],
+        data['semester'],
+        data['contact_no'],
+        data['address'],
+      ];
 
-    return requiredFields.every((field) => field != null && field.toString().trim().isNotEmpty);
-  } catch (e) {
-    debugPrint("Profile check failed: $e");
-    return false;
+      return requiredFields.every((field) => field != null && field.toString().trim().isNotEmpty);
+    } catch (e) {
+      debugPrint("Profile check failed: $e");
+      return false;
+    }
   }
-}
+
   /// Normal permission dialog
   void _showReasonDialog(String reason, Permission permission) {
     showDialog(
@@ -244,26 +234,6 @@ Future<void> _proceed() async {
     );
   }
 
-  /// Overlay-specific dialog
-  void _showOverlayDialog() {
-  showDialog(
-    context: context,
-    builder: (_) => AlertDialog(
-      title: const Text('Overlay Permission Required'),
-      content: const Text(
-        'Please enable "Display over other apps" in your phone\'s system settings. '
-        'After granting permission, return here and press Proceed.',
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('OK'),
-        ),
-      ],
-    ),
-  );
-}
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -292,8 +262,6 @@ Future<void> _proceed() async {
             _buildPermissionCard(Icons.mic, 'Microphone',
                 'Needed for audio/video evidence.'),
             const SizedBox(height: 12),
-            _buildPermissionCard(Icons.layers, 'Display over other apps',
-                'Required for SOS alerts overlay.'),
             const Spacer(),
 
             // Grant Permissions button

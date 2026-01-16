@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'dart:async';
 import 'dart:io';
-import 'dart:math'; // ✅ for Haversine formula
+import 'dart:math'; // for Haversine formula
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:http/http.dart' as http; // ✅ for Cloudinary upload
+import 'dart:convert';
 
 import 'demo_page.dart'; // for navigation back to Demopage1
 import 'sos_confirmation_screen.dart'; // new confirmation screen
@@ -51,7 +53,12 @@ class _RecordingScreenState extends State<RecordingScreen> {
         (cam) => cam.lensDirection == CameraLensDirection.front,
       );
 
-      _controller = CameraController(frontCamera, ResolutionPreset.low);
+      _controller = CameraController(
+        frontCamera,
+        ResolutionPreset.low,
+        enableAudio: true,
+      );
+
       await _controller!.initialize();
 
       if (mounted) setState(() {});
@@ -64,6 +71,29 @@ class _RecordingScreenState extends State<RecordingScreen> {
         );
         Navigator.pop(context);
       }
+    }
+  }
+
+  /// ✅ Cloudinary upload helper
+  Future<String?> _uploadVideoToCloudinary(File videoFile) async {
+    const cloudName = "dthytnb9t"; // your Cloudinary cloud name
+    const uploadPreset = "sos_upload"; // your unsigned preset
+
+    final url = Uri.parse("https://api.cloudinary.com/v1_1/$cloudName/video/upload");
+
+    final request = http.MultipartRequest("POST", url)
+      ..fields['upload_preset'] = uploadPreset
+      ..files.add(await http.MultipartFile.fromPath('file', videoFile.path));
+
+    final response = await request.send();
+    final resBody = await response.stream.bytesToString();
+
+    if (response.statusCode == 200) {
+      final data = json.decode(resBody);
+      return data['secure_url']; // ✅ Cloudinary video URL
+    } else {
+      debugPrint("❌ Cloudinary upload failed: $resBody");
+      return null;
     }
   }
 
@@ -80,7 +110,7 @@ class _RecordingScreenState extends State<RecordingScreen> {
       await _controller!.startVideoRecording();
       setState(() => _isRecording = true);
 
-      Future.delayed(const Duration(seconds: 10), () async {
+      Future.delayed(const Duration(seconds: 5), () async {
         if (!_isRecording || _controller == null) return;
 
         try {
@@ -88,20 +118,11 @@ class _RecordingScreenState extends State<RecordingScreen> {
           setState(() => _isRecording = false);
 
           final supabase = Supabase.instance.client;
-          final fileName =
-              'sos_videos/${DateTime.now().millisecondsSinceEpoch}.mp4';
-
-          final fileBytes = await File(file.path).readAsBytes();
-
-          await supabase.storage.from('videos').uploadBinary(fileName, fileBytes);
-          final publicUrl =
-              supabase.storage.from('videos').getPublicUrl(fileName);
-
           final userId = supabase.auth.currentUser?.id;
           String studentName = 'Unknown';
           String enrollmentNumber = 'Unknown';
           String contactNumber = 'Unknown';
-          String studentId = userId ?? 'Unknown'; 
+          String studentId = userId ?? 'Unknown';
 
           if (userId != null) {
             final profile = await supabase
@@ -117,7 +138,15 @@ class _RecordingScreenState extends State<RecordingScreen> {
             }
           }
 
-          // ✅ Insert SOS report with correct mapping
+          // ✅ Upload to Cloudinary
+          final videoUrl = await _uploadVideoToCloudinary(File(file.path));
+          if (videoUrl == null) {
+            throw Exception("Cloudinary upload failed");
+          }
+
+          debugPrint("✅ Cloudinary video URL: $videoUrl");
+
+          // ✅ Insert SOS report with Cloudinary URL
           final inserted = await supabase.from('sos_reports').insert({
             'user_id': userId,
             'student_name': studentName,
@@ -126,7 +155,7 @@ class _RecordingScreenState extends State<RecordingScreen> {
             'location': location,
             'lat': lat,
             'lng': lng,
-            'video_url': publicUrl,
+            'video_url': videoUrl,
             'status': 'pending',
             'created_at': DateTime.now().toIso8601String(),
           }).select().single();

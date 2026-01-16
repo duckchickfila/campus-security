@@ -23,7 +23,6 @@ class GuardGuidePage extends StatefulWidget {
 }
 
 class _GuardGuidePageState extends State<GuardGuidePage> {
-  static const MethodChannel _channel = MethodChannel('overlay_permission');
 
   /// Request all required permissions
   Future<void> _grantPermissions() async {
@@ -32,11 +31,6 @@ class _GuardGuidePageState extends State<GuardGuidePage> {
 
     // GPS check after location permission
     await _checkGpsEnabled();
-
-    // Overlay → open system settings if not granted
-    if (Platform.isAndroid && !await Permission.systemAlertWindow.isGranted) {
-      _showOverlayDialog();
-    }
   }
 
   Future<void> _handlePermission(Permission permission, String rationale) async {
@@ -83,110 +77,107 @@ class _GuardGuidePageState extends State<GuardGuidePage> {
   }
 
   /// Proceed → check all permissions and profile completion
-Future<void> _proceed() async {
-  final locationGranted = await Permission.location.isGranted;
-  final notificationGranted = await Permission.notification.isGranted;
-  final overlayGranted = await Permission.systemAlertWindow.isGranted;
-  final gpsEnabled = await Geolocator.isLocationServiceEnabled();
+  Future<void> _proceed() async {
+    final locationGranted = await Permission.location.isGranted;
+    final notificationGranted = await Permission.notification.isGranted;
+    final gpsEnabled = await Geolocator.isLocationServiceEnabled();
 
-  final supabase = Supabase.instance.client;
-  final userId = supabase.auth.currentUser?.id;
+    final supabase = Supabase.instance.client;
+    final userId = supabase.auth.currentUser?.id;
 
-  if (!mounted || userId == null) return;
+    if (!mounted || userId == null) return;
 
-  // Check profile completion
-  final profileComplete = await _isProfileComplete();
+    // Check profile completion
+    final profileComplete = await _isProfileComplete();
 
-  // Fetch tutorial flag
-  final profile = await supabase
-      .from('guard_details')
-      .select('seen_tutorial')
-      .eq('user_id', userId)
-      .maybeSingle();
+    // Fetch tutorial flag
+    final profile = await supabase
+        .from('guard_details')
+        .select('seen_tutorial')
+        .eq('user_id', userId)
+        .maybeSingle();
 
-  final seenTutorial = profile?['seen_tutorial'] ?? false;
+    final seenTutorial = profile?['seen_tutorial'] ?? false;
 
-  // ---- Navigation Logic ----
-  if (locationGranted && notificationGranted && overlayGranted && gpsEnabled) {
-    // ✅ Permissions satisfied
-    if (profileComplete) {
-      if (seenTutorial == true) {
-        // Case 4: Permissions ✅, Profile ✅, Tutorial ✅
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const GuardMainPage()),
-        );
+    // ---- Navigation Logic ----
+    if (locationGranted && notificationGranted && gpsEnabled) {
+      // ✅ Permissions satisfied
+      if (profileComplete) {
+        if (seenTutorial == true) {
+          // Case 4: Permissions ✅, Profile ✅, Tutorial ✅
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const GuardMainPage()),
+          );
+        } else {
+          // Case 3: Permissions ✅, Profile ✅, Tutorial ❌
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const GuardTutorialPages()),
+          );
+        }
       } else {
-        // Case 3: Permissions ✅, Profile ✅, Tutorial ❌
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const GuardTutorialPages()),
-        );
+        if (seenTutorial == true) {
+          // Edge case: profile incomplete but tutorial seen → force profile
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const GuardProfilePage()),
+          );
+        } else {
+          // Case 2: Permissions ✅, Profile ❌, Tutorial ❌
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const GuardProfilePage()),
+          );
+          // After profile completion, you should navigate to tutorial → main
+        }
       }
     } else {
-      if (seenTutorial == true) {
-        // Edge case: profile incomplete but tutorial seen → force profile
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const GuardProfilePage()),
-        );
-      } else {
-        // Case 2: Permissions ✅, Profile ❌, Tutorial ❌
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const GuardProfilePage()),
-        );
-        // After profile completion, you should navigate to tutorial → main
+      // ❌ Permissions not satisfied
+      if (!locationGranted) {
+        _showReasonDialog(
+            'Location is required to reach SOS sites.', Permission.location);
+      } else if (!notificationGranted) {
+        _showReasonDialog(
+            'Notifications are required to receive SOS alerts.', Permission.notification);
+      } else if (!gpsEnabled) {
+        _showGpsDialog();
       }
+
+      // Case 1: Permissions ❌, Profile ❌, Tutorial ❌
+      // After granting permissions, flow should continue → profile → tutorial → main
     }
-  } else {
-    // ❌ Permissions not satisfied
-    if (!locationGranted) {
-      _showReasonDialog(
-          'Location is required to reach SOS sites.', Permission.location);
-    } else if (!notificationGranted) {
-      _showReasonDialog(
-          'Notifications are required to receive SOS alerts.', Permission.notification);
-    } else if (!gpsEnabled) {
-      _showGpsDialog();
-    } else if (!overlayGranted) {
-      _showOverlayDialog();
+  }
+
+  Future<bool> _isProfileComplete() async {
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (userId == null) return false;
+
+    try {
+      final response = await Supabase.instance.client
+          .from('guard_details')
+          .select()
+          .eq('user_id', userId)
+          .limit(1);
+
+      if (response.isEmpty) return false;
+
+      final data = response.first as Map<String, dynamic>;
+
+      // ✅ Mandatory fields check (aligned with DB schema)
+      final requiredFields = [
+        data['name'],
+        data['contact_no'], // matches your DB column
+        data['email'],
+      ];
+
+      return requiredFields.every(
+          (field) => field != null && field.toString().trim().isNotEmpty);
+    } catch (e) {
+      debugPrint("Guard profile check failed: $e");
+      return false;
     }
-
-    // Case 1: Permissions ❌, Profile ❌, Tutorial ❌
-    // After granting permissions, flow should continue → profile → tutorial → main
   }
-}
-
-Future<bool> _isProfileComplete() async {
-  final userId = Supabase.instance.client.auth.currentUser?.id;
-  if (userId == null) return false;
-
-  try {
-    final response = await Supabase.instance.client
-        .from('guard_details')
-        .select()
-        .eq('user_id', userId)
-        .limit(1);
-
-    if (response.isEmpty) return false;
-
-    final data = response.first as Map<String, dynamic>;
-
-    // ✅ Mandatory fields check (aligned with DB schema)
-    final requiredFields = [
-      data['name'],
-      data['contact_no'], // matches your DB column
-      data['email'],
-    ];
-
-    return requiredFields.every(
-        (field) => field != null && field.toString().trim().isNotEmpty);
-  } catch (e) {
-    debugPrint("Guard profile check failed: $e");
-    return false;
-  }
-}
 
   Widget _buildPermissionCard(IconData icon, String title, String description) {
     return Container(
@@ -232,33 +223,34 @@ Future<bool> _isProfileComplete() async {
   }
 
   /// Normal permission dialog
-  void _showReasonDialog(String reason, Permission permission) {
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Permission Required'),
-        content: Text(reason),
-        actions: [
-          TextButton(
-            onPressed: () async {
-              Navigator.pop(context);
-              final result = await permission.request();
-              if (result.isGranted) {
-                _proceed(); // re‑check after granting
-              }
-            },
-            child: const Text('Grant'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-        ],
-      ),
-    );
-  }
+  /// Normal permission dialog
+void _showReasonDialog(String reason, Permission permission) {
+  showDialog(
+    context: context,
+    builder: (_) => AlertDialog(
+      title: const Text('Permission Required'),
+      content: Text(reason),
+      actions: [
+        TextButton(
+          onPressed: () async {
+            Navigator.pop(context);
+            final result = await permission.request();
+            if (result.isGranted) {
+              _proceed(); // re‑check after granting
+            }
+          },
+          child: const Text('Grant'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+      ],
+    ),
+  );
+}
 
-  /// Permanently denied → send to App Settings
+/// Permanently denied → send to App Settings
   void _showSettingsDialog(String message) {
     showDialog(
       context: context,
@@ -282,25 +274,7 @@ Future<bool> _isProfileComplete() async {
     );
   }
 
-  /// Overlay-specific dialog
-  void _showOverlayDialog() {
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Overlay Permission Required'),
-        content: const Text(
-          'Please enable "Display over other apps" in your phone\'s system settings. '
-          'After granting permission, return here and press Proceed.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('OK'),
-          ),
-        ],
-      ),
-    );
-  }
+
   Future<bool> _checkAllPermissions() async {
   // Location permission
   final locationGranted = await Permission.location.isGranted;
@@ -308,14 +282,11 @@ Future<bool> _isProfileComplete() async {
   // Notification permission
   final notificationGranted = await Permission.notification.isGranted;
 
-  // Overlay/system alert window permission
-  final overlayGranted = await Permission.systemAlertWindow.isGranted;
-
   // GPS enabled check
   final gpsEnabled = await Geolocator.isLocationServiceEnabled();
 
   // ✅ Return true only if all are satisfied
-  return locationGranted && notificationGranted && overlayGranted && gpsEnabled;
+  return locationGranted && notificationGranted && gpsEnabled;
 }
 
   // ✅ FIX: Add build method
@@ -333,7 +304,6 @@ Widget build(BuildContext context) {
           children: [
             _buildPermissionCard(Icons.location_on, "Location", "Required to reach SOS sites"),
             _buildPermissionCard(Icons.notifications, "Notifications", "Required to receive SOS alerts"),
-            _buildPermissionCard(Icons.layers, "Overlay", "Required to display urgent alerts over other apps"),
             const Spacer(),
 
             // ✅ Show message if all permissions are granted

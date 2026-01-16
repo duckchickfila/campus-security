@@ -408,21 +408,34 @@ String _formatDate(String? raw) {
 
                   // Reverse-geocode lat/lng into readable address
                   FutureBuilder<List<Placemark>>(
-                    future: placemarkFromCoordinates(
-                      double.tryParse(widget.reportData['lat']?.toString() ?? '0') ?? 0,
-                      double.tryParse(widget.reportData['lng']?.toString() ?? '0') ?? 0,
-                    ),
-                    builder: (context, snapshot) {
-                      String locationText = widget.reportData['location'] ?? '';
-                      if (snapshot.hasData && snapshot.data!.isNotEmpty) {
-                        final place = snapshot.data!.first;
-                        locationText =
-                            "${place.locality}, ${place.subAdministrativeArea}, ${place.administrativeArea}, ${place.country}";
-                      }
-                      return _buildReadOnlyField(
-                          'Location', locationText, labelStyle, valueStyle);
-                    },
+                  future: placemarkFromCoordinates(
+                    double.tryParse(widget.reportData['lat']?.toString() ?? '0') ?? 0,
+                    double.tryParse(widget.reportData['lng']?.toString() ?? '0') ?? 0,
                   ),
+                  builder: (context, snapshot) {
+                    String locationText = "${widget.reportData['lat']}, ${widget.reportData['lng']}"; // default fallback
+
+                    if (snapshot.hasData && snapshot.data!.isNotEmpty) {
+                      final place = snapshot.data!.first;
+
+                      // Build a readable string using available fields
+                      final parts = [
+                        place.name,
+                        place.locality,
+                        place.subLocality,
+                        place.subAdministrativeArea,
+                        place.administrativeArea,
+                        place.country,
+                      ].where((part) => part != null && part!.isNotEmpty).toList();
+
+                      if (parts.isNotEmpty) {
+                        locationText = parts.join(", ");
+                      }
+                    }
+
+                    return _buildReadOnlyField('Location', locationText, labelStyle, valueStyle);
+                  },
+                ),
                   const SizedBox(height: 20),
 
                   _buildReadOnlyField(

@@ -9,6 +9,9 @@ import 'package:demo_app/student_side/chat_page.dart';         // ✅ NEW import
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'soshandler.dart';
 
+import 'package:webview_flutter/webview_flutter.dart';
+import 'package:webview_flutter_android/webview_flutter_android.dart'; 
+
 // Firebase
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -75,6 +78,8 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  WebViewPlatform.instance = AndroidWebViewPlatform();
 
   // ✅ Initialize Firebase
   await Firebase.initializeApp();
