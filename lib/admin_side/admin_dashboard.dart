@@ -177,9 +177,9 @@ class _AdminDashboardState extends State<AdminDashboard> {
                 children: [
                   Text(title,
                       style: const TextStyle(
-                          fontSize: 18, fontWeight: FontWeight.bold)),
+                          fontSize: 20, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 6),
-                  Text(subtitle, style: const TextStyle(fontSize: 14)),
+                  Text(subtitle, style: const TextStyle(fontSize: 18)),
                 ],
               ),
             ),
@@ -210,10 +210,10 @@ class _AdminDashboardState extends State<AdminDashboard> {
               children: [
                 Text(g['name'],
                     style: const TextStyle(
-                        fontSize: 18, fontWeight: FontWeight.bold)),
+                        fontSize: 20, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 6),
                 Text("Zone: ${g['campus_zone']}",
-                    style: const TextStyle(fontSize: 14)),
+                    style: const TextStyle(fontSize: 18)),
               ],
             ),
           ),
@@ -273,7 +273,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
                 'Location establishment required for authorizing campus zone',
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  fontSize: 14,
+                  fontSize: 18,
                   color: Colors.black54,
                   fontWeight: FontWeight.w500,
                 ),
@@ -286,7 +286,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
                 children: [
                   Text(
                     'Set Campus Radius: ${_campusRadiusKm.toStringAsFixed(1)} km',
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                    style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
                   ),
                   Slider(
                     value: _campusRadiusKm,
@@ -310,7 +310,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
                       ),
                       child: const Text(
                         'Save Campus Radius',
-                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
+                        style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
                       ),
                     ),
                   ),

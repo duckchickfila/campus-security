@@ -22,6 +22,8 @@ class _StudentFormPageState extends State<StudentFormPage> {
   final _semesterController = TextEditingController();
   final _contactController = TextEditingController();
   final _addressController = TextEditingController();
+  final _collegeController = TextEditingController();
+
   String? _photoUrl;
   bool _isSubmitting = false;
   bool _isLoading = true;
@@ -42,6 +44,8 @@ class _StudentFormPageState extends State<StudentFormPage> {
     _semesterController.dispose();
     _contactController.dispose();
     _addressController.dispose();
+    _collegeController.dispose(); 
+
     super.dispose();
   }
 
@@ -68,6 +72,9 @@ class _StudentFormPageState extends State<StudentFormPage> {
         _contactController.text = data['contact_no'] ?? '';
         _addressController.text = data['address'] ?? '';
         _photoUrl = data['profile_photo'];
+        _collegeController.text = data['college_name'] ?? ''; // ADD
+       
+
 
       }
     } catch (e) {
@@ -95,6 +102,8 @@ Future<void> _submitDetails() async {
     _enrollmentController.text.trim(),
     _departmentController.text.trim(),
     _semesterController.text.trim(),
+    _contactController.text.trim(),
+    _addressController.text.trim(),
     _contactController.text.trim(),
     _addressController.text.trim(),
   ];
@@ -346,6 +355,8 @@ Future<void> _submitDetails() async {
                       _buildTextField(_nameController, 'Name'),
                       const SizedBox(height: 26),
                       _buildTextField(_enrollmentController, 'Enrollment No'),
+                      const SizedBox(height: 26),
+                      _buildTextField(_collegeController, 'College Name'), // ADD
                       const SizedBox(height: 26),
                       _buildTextField(_departmentController, 'Department'),
                       const SizedBox(height: 20),
