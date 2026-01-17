@@ -247,6 +247,32 @@ class _GuardMainPageState extends State<GuardMainPage> {
   }
 
   void _openSosReport(Map<String, dynamic> sosData) {
+    final resolutionStatus = sosData['resolution_status'];
+    final sosId = sosData['id']?.toString();
+
+    if (sosId == null || sosId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Invalid SOS report ID')),
+      );
+      return;
+    }
+
+    // ✅ PENDING SOS → SosReportViewer (same as notification flow)
+    if (resolutionStatus == null) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => SosReportViewer(
+            sosId: sosId,
+          ),
+        ),
+      ).then((_) {
+        _loadSosReports();
+      });
+      return;
+    }
+
+    // ✅ HANDLED / RESOLVED SOS → GuardReportViewer (unchanged)
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -256,9 +282,11 @@ class _GuardMainPageState extends State<GuardMainPage> {
         ),
       ),
     ).then((_) {
-      _loadSosReports(); // refresh after returning
+      _loadSosReports();
     });
   }
+
+
 
   void _subscribeToSOS() {
     final guardId = _supabase.auth.currentUser?.id;

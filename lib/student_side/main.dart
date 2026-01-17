@@ -19,6 +19,9 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 // Local notifications
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:demo_app/admin_side/admin_dashboard.dart';
+
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
     FlutterLocalNotificationsPlugin();
@@ -45,7 +48,6 @@ void _showNotification(RemoteMessage message) async {
   const NotificationDetails platformDetails =
       NotificationDetails(android: androidDetails);
 
-  // ✅ Decide payload type (SOS vs Chat)
   final payload = message.data['sosId'] ?? message.data['chatId'];
 
   await flutterLocalNotificationsPlugin.show(
@@ -57,23 +59,19 @@ void _showNotification(RemoteMessage message) async {
   );
 }
 
-/// Background tap handler
 @pragma('vm:entry-point')
 void notificationTapBackground(NotificationResponse response) {
   final payload = response.payload;
   if (payload != null && payload.isNotEmpty) {
     debugPrint('📲 Background notification tapped with payload: $payload');
-    // Optional: add navigation logic here
   }
 }
 
-/// Background handler for FCM
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp();
   debugPrint("📡 Background handler fired");
   debugPrint("🔎 Full message payload (background isolate): ${message.toMap()}");
-  // ❌ Do not call _showNotification here
 }
 
 Future<void> main() async {
@@ -81,13 +79,10 @@ Future<void> main() async {
 
   WebViewPlatform.instance = AndroidWebViewPlatform();
 
-  // ✅ Initialize Firebase
   await Firebase.initializeApp();
 
-  // ✅ Register background handler
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
-  // ✅ Request notification permissions
   final settings = await FirebaseMessaging.instance.requestPermission(
     alert: true,
     badge: true,
@@ -95,16 +90,13 @@ Future<void> main() async {
   );
   debugPrint('Notification permission status: ${settings.authorizationStatus}');
 
-  // ✅ Initialize Supabase
   await Supabase.initialize(
     url: 'https://pvqkkfmzdjquqjxabzur.supabase.co',
     anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB2cWtrZm16ZGpxdXFqeGFienVyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjYzOTQ0MzEsImV4cCI6MjA4MTk3MDQzMX0.V9V2SXbDt9mwWOQTaa_D_RW5puBxMVwtmhIqFG0ekvw',
   );
 
-  // ✅ Initialize native SOS handler
   SOSHandler.init(navigatorKey);
 
-  // ✅ Configure local notifications
   const AndroidInitializationSettings initSettingsAndroid =
       AndroidInitializationSettings('@mipmap/ic_launcher');
 
@@ -138,20 +130,17 @@ Future<void> main() async {
     onDidReceiveBackgroundNotificationResponse: notificationTapBackground,
   );
 
-  // ✅ Create Android notification channel
   await flutterLocalNotificationsPlugin
       .resolvePlatformSpecificImplementation<
           AndroidFlutterLocalNotificationsPlugin>()
       ?.createNotificationChannel(sosChannel);
 
-  // ✅ Foreground notifications
   FirebaseMessaging.onMessage.listen((RemoteMessage message) {
     debugPrint("📡 Foreground notification received");
     debugPrint("🔎 Full message payload (foreground): ${message.toMap()}");
     _showNotification(message);
   });
 
-  // ✅ Handle notification taps when app is in background
   FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
     debugPrint("Background notification tapped");
 
@@ -171,63 +160,10 @@ Future<void> main() async {
       navigatorKey.currentState?.push(MaterialPageRoute(
         builder: (_) => SosReportViewer(sosId: sosId),
       ));
-    } else {
-      debugPrint("⚠️ No valid payload in notification: ${message.data}");
     }
   });
 
   runApp(MyApp(navigatorKey: navigatorKey));
-
-  // ✅ Handle notification when app is opened from terminated state
-  final initialMessage = await FirebaseMessaging.instance.getInitialMessage();
-  if (initialMessage != null) {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final sosId = initialMessage.data['sosId'];
-      final chatId = initialMessage.data['chatId'];
-      final studentId = initialMessage.data['studentId'];
-
-      if (chatId != null && chatId.isNotEmpty) {
-        navigatorKey.currentState?.push(MaterialPageRoute(
-          builder: (_) => ChatPage(
-            sosId: chatId,
-            guardId: Supabase.instance.client.auth.currentUser?.id ?? "",
-            studentId: studentId ?? "",
-          ),
-        ));
-      } else if (sosId != null && sosId.isNotEmpty) {
-        navigatorKey.currentState?.push(MaterialPageRoute(
-          builder: (_) => SosReportViewer(sosId: sosId),
-        ));
-      }
-    });
-  }
-
-  // ✅ Register FCM token in Supabase (student_details / guard_details)
-  final fcmToken = await FirebaseMessaging.instance.getToken();
-  final userId = Supabase.instance.client.auth.currentUser?.id;
-  if (fcmToken != null && userId != null) {
-    final supabase = Supabase.instance.client;
-
-    final studentProfile = await supabase
-        .from('student_details')
-        .select('user_id')
-        .eq('user_id', userId)
-        .maybeSingle();
-
-    if (studentProfile != null) {
-      await supabase
-          .from('student_details')
-          .update({'fcm_token': fcmToken})
-          .eq('user_id', userId);
-      debugPrint("📡 FCM token registered for student $userId");
-    } else {
-      await supabase
-          .from('guard_details')
-          .update({'fcm_token': fcmToken})
-          .eq('user_id', userId);
-      debugPrint("📡 FCM token registered for guard $userId");
-    }
-  }
 }
 
 class MyApp extends StatelessWidget {
@@ -235,6 +171,17 @@ class MyApp extends StatelessWidget {
   const MyApp({super.key, required this.navigatorKey});
 
   Future<Widget> _getHomeFuture() async {
+    // ✅ ADMIN DASHBOARD CHECK (ONLY ADDITION)
+    final prefs = await SharedPreferences.getInstance();
+    final isAdminLoggedIn = prefs.getBool('is_admin_logged_in') ?? false;
+  
+    if (isAdminLoggedIn) {
+      final adminId = prefs.getString('admin_id'); // get saved adminId
+      if (adminId != null) {
+        return AdminDashboard(adminId: adminId); // pass adminId
+      }
+    }
+
     final session = Supabase.instance.client.auth.currentSession;
     if (session == null) return const LoginPage();
 

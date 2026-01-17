@@ -3,6 +3,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:demo_app/student_side/demo_page.dart';
 import 'package:demo_app/student_side/guide_page.dart';
 import 'package:demo_app/guard_side/guard_guide_page.dart';
+import 'package:demo_app/admin_side/admin_dashboard.dart';
+import 'package:demo_app/admin_side/admin_login_page.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -38,6 +40,7 @@ class _LoginPageState extends State<LoginPage> {
     );
     return;
   }
+  // ---------------------------------------------------
 
   setState(() => _isLoading = true);
 
@@ -166,7 +169,6 @@ class _LoginPageState extends State<LoginPage> {
       setState(() => _isLogin = true);
     }
   } on AuthApiException catch (e) {
-    // ---------- SUPABASE AUTH ERRORS ----------
     String message = e.message;
 
     if (e.code == 'user_already_exists') {
@@ -187,9 +189,7 @@ class _LoginPageState extends State<LoginPage> {
     );
   } on AuthRetryableFetchException {
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Network issue. Please try again.'),
-      ),
+      const SnackBar(content: Text('Network issue. Please try again.')),
     );
   } on AuthException catch (e) {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -204,11 +204,8 @@ class _LoginPageState extends State<LoginPage> {
   } finally {
     if (mounted) setState(() => _isLoading = false);
   }
- } 
-
-
-
-
+}
+ 
 
   Future<bool> showOtpDialog(BuildContext context, String email) async {
     final otpController = TextEditingController();
@@ -330,8 +327,11 @@ class _LoginPageState extends State<LoginPage> {
                     _buildRoleButton('student', Icons.school),
                     const SizedBox(width: 20),
                     _buildRoleButton('security', Icons.security),
+                    const SizedBox(width: 20),
+                    _buildRoleButton('admin', Icons.admin_panel_settings),
                   ],
                 ),
+
                 const SizedBox(height: 32),
 
                 SizedBox(
@@ -427,10 +427,23 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 
-  Widget _buildRoleButton(String role, IconData icon) {
+    Widget _buildRoleButton(String role, IconData icon) {
     final isSelected = _selectedRole == role;
+
     return GestureDetector(
       onTap: () {
+        if (role == 'admin') {
+          // 🚀 Admin uses separate auth system
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => const AdminLoginPage(),
+            ),
+          );
+          return;
+        }
+
+        // Student / Security role selection
         setState(() => _selectedRole = role);
       },
       child: Container(
@@ -445,8 +458,11 @@ class _LoginPageState extends State<LoginPage> {
         ),
         child: Column(
           children: [
-            Icon(icon,
-                size: 40, color: isSelected ? Colors.white : Colors.black),
+            Icon(
+              icon,
+              size: 40,
+              color: isSelected ? Colors.white : Colors.black,
+            ),
             const SizedBox(height: 8),
             Text(
               role[0].toUpperCase() + role.substring(1),

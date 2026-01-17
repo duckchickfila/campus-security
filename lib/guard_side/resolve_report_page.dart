@@ -126,7 +126,7 @@ class _ResolveReportPageState extends State<ResolveReportPage> {
       final guardId = _supabase.auth.currentUser?.id;
 
       final payload = {
-        // keep existing student info so it doesn’t get lost
+        // keep existing student info
         'student_name': widget.reportData['student_name'],
         'enrollment_number': widget.reportData['enrollment_number'],
         'contact_number': widget.reportData['contact_number'],
@@ -142,6 +142,34 @@ class _ResolveReportPageState extends State<ResolveReportPage> {
         'resolution_remarks': _remarksController.text.trim(),
         'guard_attachments': urls,
       };
+
+      // ✅ Increment false_alarm properly
+      if (selectedStatus == 'false_alarm') {
+        final userId = widget.reportData['user_id'];
+        if (userId != null) {
+          try {
+            // Sum false_alarm from all previous reports of this student
+            final result = await _supabase
+                .from('sos_reports')
+                .select('false_alarm')
+                .eq('user_id', userId);
+
+            int totalFalseAlarms = 0;
+            if (result != null && result is List) {
+              totalFalseAlarms = result.fold<int>(
+                0,
+                (prev, element) => prev + (element['false_alarm'] as int? ?? 0),
+              );
+            }
+
+            // Increment by 1 for this false alarm
+            payload['false_alarm'] = totalFalseAlarms + 1;
+          } catch (e) {
+            debugPrint("❌ Failed to increment false_alarm: $e");
+            payload['false_alarm'] = 1; // fallback
+          }
+        }
+      }
 
       await _supabase
           .from('sos_reports')
@@ -159,6 +187,8 @@ class _ResolveReportPageState extends State<ResolveReportPage> {
       );
     }
   }
+
+
 
   Widget _buildReadOnlyField(String label, String? value) {
     return Column(
