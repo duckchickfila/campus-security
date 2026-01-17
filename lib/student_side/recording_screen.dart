@@ -49,12 +49,12 @@ class _RecordingScreenState extends State<RecordingScreen> {
   Future<void> _initCameraAndStartSOS() async {
     try {
       final cameras = await availableCameras();
-      final frontCamera = cameras.firstWhere(
-        (cam) => cam.lensDirection == CameraLensDirection.front,
+      final backCamera = cameras.firstWhere(
+        (cam) => cam.lensDirection == CameraLensDirection.back,
       );
 
       _controller = CameraController(
-        frontCamera,
+        backCamera,
         ResolutionPreset.low,
         enableAudio: true,
       );

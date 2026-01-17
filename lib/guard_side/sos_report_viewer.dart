@@ -23,6 +23,7 @@ class _SosReportViewerState extends State<SosReportViewer> {
   Map<String, dynamic>? _studentDetails;
   String? _address;
   VideoPlayerController? _videoController;
+  
 
   @override
   void initState() {
@@ -176,41 +177,94 @@ class _SosReportViewerState extends State<SosReportViewer> {
     }
   }
 
-  Widget _detailRow({
-    required String label,
-    required String? value,
-    bool clickable = false,
-    VoidCallback? onTap,
-  }) {
-    // ✅ Check for non‑null, non‑empty value
-    final hasValue = value != null && value.trim().isNotEmpty;
-    final display = hasValue ? value!.trim() : 'N/A';
+    Widget _detailRow({
+      required String label,
+      required String? value,
+      bool clickable = false,
+      VoidCallback? onTap,
+      bool highlight = false,            // ✅ ADDITIVE
+      IconData? leadingIcon,             // ✅ ADDITIVE
+    }) {
+      final hasValue = value != null && value.trim().isNotEmpty;
+      final display = hasValue ? value!.trim() : 'N/A';
 
-    final labelStyle = const TextStyle(
-      fontSize: 20,
-      fontWeight: FontWeight.bold,
-      color: Colors.black87,
-    );
+      final labelStyle = TextStyle(
+        fontSize: 20,
+        fontWeight: FontWeight.bold,
+        color: highlight ? Colors.red[700] : Colors.black87,
+      );
 
-    final valueStyle = TextStyle(
-      fontSize: 20,
-      color: clickable && hasValue ? Colors.blue : Colors.black87,
-      decoration: clickable && hasValue ? TextDecoration.underline : TextDecoration.none,
-    );
+      final valueStyle = TextStyle(
+        fontSize: 20,
+        color: clickable && hasValue
+            ? Colors.blue
+            : (highlight ? Colors.red[700] : Colors.black87),
+        decoration:
+            clickable && hasValue ? TextDecoration.underline : TextDecoration.none,
+      );
 
-    final content = Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text("$label: ", style: labelStyle),
-        Expanded(child: Text(display, style: valueStyle)),
-      ],
-    );
+      final content = Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (leadingIcon != null) ...[
+            Icon(leadingIcon, size: 22, color: highlight ? Colors.red[700] : Colors.black87),
+            const SizedBox(width: 6),
+          ],
+          Text("$label: ", style: labelStyle),
+          Expanded(child: Text(display, style: valueStyle)),
+        ],
+      );
 
-    // ✅ Only wrap with GestureDetector if clickable and has a valid value
-    return (clickable && onTap != null && hasValue)
-        ? GestureDetector(onTap: onTap, child: content)
-        : content;
+      return (clickable && onTap != null && hasValue)
+          ? GestureDetector(onTap: onTap, child: content)
+          : content;
   }
+
+  // ================= ADDITIVE: Buzzer SOS Details Card =================
+    Widget _buzzerDetailsCard() {
+      return Card(
+        elevation: 3,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _detailRow(
+                label: "Buzzer Alert",
+                value: "Physical SOS Button Triggered",
+                highlight: true,
+                leadingIcon: Icons.warning_amber_rounded,
+              ),
+              const SizedBox(height: 12),
+              _detailRow(
+                label: "Campus Zone",
+                value: _report?['campus_zone']?.toString(),
+                highlight: true,
+              ),
+              const SizedBox(height: 12),
+              _detailRow(
+                label: "Location (Words)",
+                value: _address,
+              ),
+              const SizedBox(height: 12),
+              _detailRow(
+                label: "Location (Raw)",
+                value: _report?['location']?.toString(),
+              ),
+              const SizedBox(height: 12),
+              _detailRow(
+                label: "Status",
+                value: _report?['status']?.toString(),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+// ================= END ADDITIVE =================
+
+
 
   // ✅ Updated: play/pause inline instead of external launch
   Future<void> _openVideoUrl(String url) async {
@@ -243,6 +297,7 @@ class _SosReportViewerState extends State<SosReportViewer> {
         body: Center(child: CircularProgressIndicator()),
       );
     }
+    final bool isBuzzerSOS = _report!['user_id'] == null;
 
     final studentName = _studentDetails?['name']?.toString();
     final studentEnrollment = _studentDetails?['enrollment_no']?.toString();
@@ -262,6 +317,13 @@ class _SosReportViewerState extends State<SosReportViewer> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // ================= ADDITIVE: Buzzer-only UI =================
+              if (isBuzzerSOS) ...[
+                _buzzerDetailsCard(),
+                const SizedBox(height: 24),
+              ],
+// ================= END ADDITIVE =================
+
               // ───────── Student Details ─────────
               Card(
                 elevation: 2,

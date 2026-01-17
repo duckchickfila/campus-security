@@ -114,9 +114,9 @@ class Demopage1 extends StatefulWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  Text(title, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 6),
-                  Text("$label: $dateText", style: const TextStyle(fontSize: 14)),
+                  Text("$label: $dateText", style: const TextStyle(fontSize: 18)),
                 ],
               ),
             ),

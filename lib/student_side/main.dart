@@ -4,8 +4,8 @@ import 'package:demo_app/student_side/login_page.dart';
 import 'package:demo_app/student_side/tutorial_pages.dart';
 import 'package:demo_app/guard_side/main_page.dart';
 import 'package:demo_app/guard_side/tutorial_pages.dart';
-import 'package:demo_app/guard_side/sos_report_viewer.dart';   // notifications
-import 'package:demo_app/student_side/chat_page.dart';         // ✅ NEW import
+import 'package:demo_app/guard_side/sos_report_viewer.dart'; // notifications
+import 'package:demo_app/student_side/chat_page.dart';        // ✅ NEW import
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'soshandler.dart';
 
@@ -21,6 +21,11 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:demo_app/admin_side/admin_dashboard.dart';
+
+// ✅ Porcupine
+import 'package:porcupine_flutter/porcupine_manager.dart';
+import 'package:flutter/services.dart';
+import 'recording_screen.dart';
 
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
@@ -72,6 +77,35 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp();
   debugPrint("📡 Background handler fired");
   debugPrint("🔎 Full message payload (background isolate): ${message.toMap()}");
+}
+
+// ✅ Porcupine manager
+PorcupineManager? _porcupineManager;
+
+// ✅ Start wake word detection
+Future<void> _startPorcupineListener() async {
+  try {
+    // Replace '<YOUR_ACCESS_KEY>' with your Picovoice AccessKey
+    _porcupineManager = await PorcupineManager.fromKeywordPaths(
+      '<YOUR_ACCESS_KEY>',
+      ['assets/porcupine/sos.ppn'], // your wake word model
+      (int keywordIndex) async {
+        debugPrint('🎤 Wake word detected! Index: $keywordIndex');
+        // Navigate to RecordingScreen
+        if (navigatorKey.currentState != null) {
+          navigatorKey.currentState!.push(
+            MaterialPageRoute(builder: (_) => const RecordingScreen()),
+          );
+        }
+      },
+      errorCallback: (error) {
+        debugPrint('❌ Porcupine error: $error');
+      },
+    );
+    await _porcupineManager?.start();
+  } on PlatformException catch (e) {
+    debugPrint("❌ Failed to start Porcupine: ${e.message}");
+  }
 }
 
 Future<void> main() async {
@@ -163,6 +197,9 @@ Future<void> main() async {
     }
   });
 
+  // ✅ Start Porcupine wake word listener
+  _startPorcupineListener();
+
   runApp(MyApp(navigatorKey: navigatorKey));
 }
 
@@ -171,14 +208,13 @@ class MyApp extends StatelessWidget {
   const MyApp({super.key, required this.navigatorKey});
 
   Future<Widget> _getHomeFuture() async {
-    // ✅ ADMIN DASHBOARD CHECK (ONLY ADDITION)
     final prefs = await SharedPreferences.getInstance();
     final isAdminLoggedIn = prefs.getBool('is_admin_logged_in') ?? false;
-  
+
     if (isAdminLoggedIn) {
       final adminId = prefs.getString('admin_id'); // get saved adminId
       if (adminId != null) {
-        return AdminDashboard(adminId: adminId); // pass adminId
+        return AdminDashboard(adminId: adminId);
       }
     }
 
