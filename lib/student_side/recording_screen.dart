@@ -8,7 +8,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:http/http.dart' as http; // ✅ for Cloudinary upload
 import 'dart:convert';
-
+import 'demo_page.dart';
 import 'demo_page.dart'; // for navigation back to Demopage1
 import 'sos_confirmation_screen.dart'; // new confirmation screen
 
@@ -97,102 +97,165 @@ class _RecordingScreenState extends State<RecordingScreen> {
     }
   }
 
-  Future<void> _startSOS() async {
-    try {
-      Position position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
+    Future<void> _startSOS() async {
+  try {
+    // 1️⃣ Get student location
+    Position position = await Geolocator.getCurrentPosition(
+      desiredAccuracy: LocationAccuracy.high,
+    );
+    final lat = position.latitude.toDouble();
+    final lng = position.longitude.toDouble();
+    final location = '$lat, $lng';
+
+    // 2️⃣ Fetch admin location and campus_distance
+    final supabase = Supabase.instance.client;
+    final adminRow = await supabase
+        .from('admin_locations')
+        .select('latitude, longitude, campus_distance')
+        .limit(1)
+        .maybeSingle();
+
+    if (adminRow == null ||
+        adminRow['latitude'] == null ||
+        adminRow['longitude'] == null ||
+        adminRow['campus_distance'] == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text(
+                'Campus radius or admin location not set. Cannot proceed.')),
       );
-      final lat = position.latitude;
-      final lng = position.longitude;
-      final location = '$lat, $lng';
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const Demopage1()),
+      );
+      return;
+    }
 
-      if (_controller == null || _isRecording) return;
-      await _controller!.startVideoRecording();
-      setState(() => _isRecording = true);
+    // ✅ Type-safe parsing
+    double parseDouble(dynamic val) {
+      if (val == null) return 0.0;
+      if (val is double) return val;
+      if (val is int) return val.toDouble();
+      if (val is String) return double.tryParse(val) ?? 0.0;
+      return 0.0;
+    }
 
-      Future.delayed(const Duration(seconds: 5), () async {
-        if (!_isRecording || _controller == null) return;
+    final adminLat = parseDouble(adminRow['latitude']);
+    final adminLng = parseDouble(adminRow['longitude']);
+    final campusRadiusKm = parseDouble(adminRow['campus_distance']);
 
-        try {
-          final file = await _controller!.stopVideoRecording();
-          setState(() => _isRecording = false);
+    // 3️⃣ Calculate distance (meters)
+    double haversine(double lat1, double lon1, double lat2, double lon2) {
+      const R = 6371000; // meters
+      final dLat = (lat2 - lat1) * (pi / 180);
+      final dLon = (lon2 - lon1) * (pi / 180);
+      final a = sin(dLat / 2) * sin(dLat / 2) +
+          cos(lat1 * pi / 180) * cos(lat2 * pi / 180) *
+              sin(dLon / 2) * sin(dLon / 2);
+      final c = 2 * atan2(sqrt(a), sqrt(1 - a));
+      return R * c;
+    }
 
-          final supabase = Supabase.instance.client;
-          final userId = supabase.auth.currentUser?.id;
-          String studentName = 'Unknown';
-          String enrollmentNumber = 'Unknown';
-          String contactNumber = 'Unknown';
-          String studentId = userId ?? 'Unknown';
+    final distanceMeters = haversine(lat, lng, adminLat, adminLng);
 
-          if (userId != null) {
-            final profile = await supabase
-                .from('student_details')
-                .select('name, enrollment_no, contact_no')
-                .eq('user_id', userId)
-                .limit(1);
+    // 4️⃣ Check if student is within campus radius
+    if (distanceMeters > campusRadiusKm * 1000) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Location out of campus radius!')),
+      );
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const Demopage1()),
+      );
+      return;
+    }
 
-            if (profile.isNotEmpty) {
-              studentName = profile.first['name'] ?? 'Unknown';
-              enrollmentNumber = profile.first['enrollment_no'] ?? 'Unknown';
-              contactNumber = profile.first['contact_no'] ?? 'Unknown';
-            }
-          }
+    // 5️⃣ ✅ Student is within radius → continue existing SOS workflow
+    if (_controller == null || _isRecording) return;
+    await _controller!.startVideoRecording();
+    setState(() => _isRecording = true);
 
-          // ✅ Upload to Cloudinary
-          final videoUrl = await _uploadVideoToCloudinary(File(file.path));
-          if (videoUrl == null) {
-            throw Exception("Cloudinary upload failed");
-          }
+    Future.delayed(const Duration(seconds: 5), () async {
+      if (!_isRecording || _controller == null) return;
 
-          debugPrint("✅ Cloudinary video URL: $videoUrl");
+      try {
+        final file = await _controller!.stopVideoRecording();
+        setState(() => _isRecording = false);
 
-          // ✅ Insert SOS report with Cloudinary URL
-          final inserted = await supabase.from('sos_reports').insert({
-            'user_id': userId,
-            'student_name': studentName,
-            'enrollment_number': enrollmentNumber,
-            'contact_number': contactNumber,
-            'location': location,
-            'lat': lat,
-            'lng': lng,
-            'video_url': videoUrl,
-            'status': 'pending',
-            'created_at': DateTime.now().toIso8601String(),
-          }).select().single();
+        // --- rest of your existing SOS workflow ---
+        final userId = supabase.auth.currentUser?.id;
+        String studentName = 'Unknown';
+        String enrollmentNumber = 'Unknown';
+        String contactNumber = 'Unknown';
+        String studentId = userId ?? 'Unknown';
 
-          final sosId = inserted['id'].toString();
+        if (userId != null) {
+          final profile = await supabase
+              .from('student_details')
+              .select('name, enrollment_no, contact_no')
+              .eq('user_id', userId)
+              .limit(1);
 
-          // ✅ Assign nearest guard automatically
-          final guardId = await _assignNearestGuard(sosId, lat, lng);
-
-          if (mounted) {
-            Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(
-                builder: (_) => SosConfirmationScreen(
-                  sosId: sosId,
-                  guardId: guardId ?? 'Unknown',
-                  studentId: studentId ?? 'Unknown',
-                ),
-              ),
-            );
-          }
-        } catch (e) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('Upload failed: $e')),
-            );
+          if (profile.isNotEmpty) {
+            studentName = profile.first['name'] ?? 'Unknown';
+            enrollmentNumber = profile.first['enrollment_no'] ?? 'Unknown';
+            contactNumber = profile.first['contact_no'] ?? 'Unknown';
           }
         }
-      });
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Location fetch failed: $e')),
-        );
+
+        // Cloudinary upload
+        final videoUrl = await _uploadVideoToCloudinary(File(file.path));
+        if (videoUrl == null) throw Exception("Cloudinary upload failed");
+
+        // Insert SOS report
+        final inserted = await supabase.from('sos_reports').insert({
+          'user_id': userId,
+          'student_name': studentName,
+          'enrollment_number': enrollmentNumber,
+          'contact_number': contactNumber,
+          'location': location,
+          'lat': lat,
+          'lng': lng,
+          'video_url': videoUrl,
+          'status': 'pending',
+          'created_at': DateTime.now().toIso8601String(),
+        }).select().single();
+
+        final sosId = inserted['id'].toString();
+
+        // Assign nearest guard
+        final guardId = await _assignNearestGuard(sosId, lat, lng);
+
+        if (mounted) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (_) => SosConfirmationScreen(
+                sosId: sosId,
+                guardId: guardId ?? 'Unknown',
+                studentId: studentId ?? 'Unknown',
+              ),
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Upload failed: $e')),
+          );
+        }
       }
+    });
+  } catch (e) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Location fetch failed: $e')),
+      );
     }
   }
+}
+
+
 
   Future<String?> _assignNearestGuard(String sosId, double sosLat, double sosLng) async {
     final supabase = Supabase.instance.client;

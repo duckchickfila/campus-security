@@ -10,7 +10,6 @@ import 'package:excel/excel.dart';
 import 'package:csv/csv.dart';
 import 'dart:io';
 
-
 class AdminDashboard extends StatefulWidget {
   final String adminId;
   const AdminDashboard({super.key, required this.adminId});
@@ -27,6 +26,8 @@ class _AdminDashboardState extends State<AdminDashboard> {
   bool _loadingGuards = true;
 
   late final Stream<List<Map<String, dynamic>>> _falseAlarmStream;
+
+  double _campusRadiusKm = 1.0; // Default campus radius slider
 
   @override
   void initState() {
@@ -63,7 +64,6 @@ class _AdminDashboardState extends State<AdminDashboard> {
 
     _fetchAvailableGuards();
   }
-
 
   // ============ FETCH GUARDS ============
   Future<void> _fetchAvailableGuards() async {
@@ -128,6 +128,30 @@ class _AdminDashboardState extends State<AdminDashboard> {
       );
     }
   }
+
+  // ============ SAVE CAMPUS DISTANCE ============
+    Future<void> _saveCampusDistance() async {
+    try {
+      await supabase
+          .from('admin_locations')
+          .update({'campus_distance': _campusRadiusKm})
+          .eq('admin_id', _currentAdminId);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content:
+              Text('Campus radius saved: ${_campusRadiusKm.toStringAsFixed(1)} km'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      print('Error saving campus distance: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to save campus radius: $e')),
+      );
+    }
+  }
+
 
   // ============ BUILD CARDS ============
   Widget _buildCard({
@@ -244,7 +268,6 @@ class _AdminDashboardState extends State<AdminDashboard> {
                 ),
               ),
 
-              // 🔽 ADDED NOTE (ONLY CHANGE)
               const SizedBox(height: 12),
               const Text(
                 'Location establishment required for authorizing campus zone',
@@ -254,6 +277,44 @@ class _AdminDashboardState extends State<AdminDashboard> {
                   color: Colors.black54,
                   fontWeight: FontWeight.w500,
                 ),
+              ),
+
+              const SizedBox(height: 16),
+              // ====== CAMPUS RADIUS SLIDER ======
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Set Campus Radius: ${_campusRadiusKm.toStringAsFixed(1)} km',
+                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                  ),
+                  Slider(
+                    value: _campusRadiusKm,
+                    min: 1.0,
+                    max: 7.0,
+                    divisions: 12,
+                    label: '${_campusRadiusKm.toStringAsFixed(1)} km',
+                    onChanged: (value) {
+                      setState(() => _campusRadiusKm = value);
+                    },
+                  ),
+                  Center(
+                    child: ElevatedButton(
+                      onPressed: _saveCampusDistance,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green,
+                        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: const Text(
+                        'Save Campus Radius',
+                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
+                      ),
+                    ),
+                  ),
+                ],
               ),
 
               const SizedBox(height: 32),
