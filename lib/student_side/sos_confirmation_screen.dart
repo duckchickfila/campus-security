@@ -100,13 +100,20 @@ class _SosConfirmationScreenState extends State<SosConfirmationScreen> {
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
-        title: const Text("SOS Submitted"),
         backgroundColor: Colors.red,
         centerTitle: true,
+        iconTheme: const IconThemeData(color: Colors.white),
+        titleTextStyle: const TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.bold,
+          fontSize: 20,
+        ),
+        title: const Text(
+          "SOS Submitted",
+        ),
         actions: [
-          // ✅ Chat icon in AppBar
           IconButton(
-            icon: const Icon(Icons.chat_bubble, color: Colors.white),
+            icon: const Icon(Icons.chat_bubble),
             tooltip: "Chat with Guard",
             onPressed: () {
               Navigator.push(
@@ -115,7 +122,7 @@ class _SosConfirmationScreenState extends State<SosConfirmationScreen> {
                   builder: (_) => ChatPage(
                     sosId: widget.sosId,
                     guardId: widget.guardId,
-                    studentId: widget.studentId, // ✅ fixed
+                    studentId: widget.studentId,
                   ),
                 ),
               );
@@ -123,6 +130,7 @@ class _SosConfirmationScreenState extends State<SosConfirmationScreen> {
           ),
         ],
       ),
+
       body: Center(
         child: Padding(
           padding: const EdgeInsets.all(24.0),

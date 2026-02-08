@@ -33,6 +33,16 @@ class _AdminLoginPageState extends State<AdminLoginPage> {
   Future<void> _loginAdmin() async {
     if (!_formKey.currentState!.validate()) return;
 
+    // 🚫 Require OTP to be sent if email is entered
+    if (_emailController.text.trim().isNotEmpty && !_showOtpField) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please send OTP before logging in'),
+        ),
+      );
+      return;
+    }
+
     setState(() => _isLoading = true);
 
     try {
@@ -69,6 +79,7 @@ class _AdminLoginPageState extends State<AdminLoginPage> {
       if (mounted) setState(() => _isLoading = false);
     }
   }
+
 
   // ======= EMAIL OTP =======
   Future<void> _sendOtp() async {

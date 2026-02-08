@@ -146,13 +146,21 @@ class _ChatPageState extends State<ChatPage> {
 
   @override
   Widget build(BuildContext context) {
-    final title = "${studentName ?? 'Student'} ↔ ${guardName ?? 'Guard'}";
+    final title = "${studentName ?? 'Student'}  ↔  ${guardName ?? 'Guard'}";
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(title),
         backgroundColor: Colors.red,
         centerTitle: true,
+        elevation: 4,
+        iconTheme: const IconThemeData(color: Colors.white),
+        titleTextStyle: const TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.w600, // modern semi-bold
+          fontSize: 20,
+          letterSpacing: 0.3,
+        ),
+        title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
       ),
       body: Column(
         children: [
